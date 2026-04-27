@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { type FormEvent, useState } from "react";
 import { AuthForm, Feedback, FormField, SubmitButton } from "@/components/auth/AuthForm";
 import { AuthShell } from "@/components/auth/AuthShell";
@@ -20,8 +21,8 @@ export default function RegisterPage() {
     setSuccess(null);
 
     try {
-      const data = await register({ email, password });
-      setSuccess(`Usuario criado. Resposta: ${JSON.stringify(data)}`);
+      await register({ email, password });
+      setSuccess("Conta criada. Agora voce ja pode entrar no sistema.");
     } catch (err) {
       const apiError = err as ApiError;
       setError(apiError.message);
@@ -31,20 +32,40 @@ export default function RegisterPage() {
   }
 
   return (
-    <AuthShell title="Criar conta" subtitle="POST /auth/register">
+    <AuthShell title="Criar conta" subtitle="Cadastre um usuario para registrar operacoes e acompanhar seus ativos.">
       <AuthForm onSubmit={onSubmit}>
-        <FormField id="email" label="Email" type="email" value={email} required onChange={setEmail} />
+        <FormField
+          id="email"
+          label="Email"
+          type="email"
+          value={email}
+          required
+          autoComplete="email"
+          placeholder="voce@email.com"
+          onChange={setEmail}
+        />
         <FormField
           id="password"
           label="Senha"
           type="password"
           value={password}
           required
+          autoComplete="new-password"
+          placeholder="Defina uma senha"
+          helper="Use uma senha que voce nao utiliza em outros servicos."
           onChange={setPassword}
         />
         <SubmitButton label="Criar conta" loadingLabel="Criando..." isLoading={isLoading} />
         <Feedback error={error} success={success} />
       </AuthForm>
+
+      <p className="text-sm text-slate-600">
+        Ja possui conta?{" "}
+        <Link className="font-semibold text-blue-700 hover:text-blue-900" href="/auth/login">
+          Entrar
+        </Link>
+      </p>
     </AuthShell>
   );
 }
+

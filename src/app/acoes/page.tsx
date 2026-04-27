@@ -1,114 +1,652 @@
 "use client";
 
-import { EndpointTester } from "@/components/api/EndpointTester";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
+import type {
+  ApiError,
+  ListarCarteirasResponse,
+  ListarAcoesResponse,
+  ListarTickersResponse,
+  OperacaoAcaoPayload,
+  OperacoesAcoesResponse,
+  PerformanceAcoesResponse,
+  PosicaoAcao,
+  ResultadoVendasResponse,
+} from "@/lib/api";
 import {
-  createAcao,
-  createEventoCorporativo,
-  deleteAcao,
-  getAcaoById,
-  healthcheck,
+  getAcaoByTicker,
+  getPerformanceAcoes,
   listAcoes,
-  updateAcao,
-  updateCotacoes,
+  listAcoesAvulsas,
+  listCarteiras,
+  listOperacoesAcoes,
+  listResultadoVendas,
+  listTickers,
+  registrarCompra,
+  registrarComprasLote,
+  registrarVenda,
+  registrarVendasLote,
 } from "@/lib/api";
 
-function toOptionalNumber(value: string): number | undefined {
-  if (!value.trim()) {
-    return undefined;
+type OperationForm = {
+  ticker: string;
+  quantidade: string;
+  valorUnitario: string;
+  dataOperacao: string;
+  carteiraId: string;
+};
+
+type ActionMode = "compra" | "venda";
+
+const emptyForm: OperationForm = {
+  ticker: "",
+  quantidade: "",
+  valorUnitario: "",
+  dataOperacao: "",
+  carteiraId: "",
+};
+
+const currencyFormatter = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+});
+
+const numberFormatter = new Intl.NumberFormat("pt-BR", {
+  maximumFractionDigits: 2,
+});
+
+function formatCurrency(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? currencyFormatter.format(value) : "Sem cotacao";
+}
+
+function formatNumber(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? numberFormatter.format(value) : "-";
+}
+
+function formatPercent(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(2)}%` : "-";
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) {
+    return "-";
   }
 
-  return Number(value);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function toPayload(form: OperationForm): OperacaoAcaoPayload {
+  const ticker = form.ticker.trim().toUpperCase();
+  const quantidade = Number(form.quantidade);
+  const valorUnitario = Number(form.valorUnitario);
+
+  if (!ticker) {
+    throw new Error("Informe o ticker.");
+  }
+  if (!Number.isInteger(quantidade) || quantidade <= 0) {
+    throw new Error("A quantidade deve ser um inteiro maior que zero.");
+  }
+  if (!Number.isFinite(valorUnitario) || valorUnitario <= 0) {
+    throw new Error("O valor unitario deve ser maior que zero.");
+  }
+
+  return {
+    ticker,
+    quantidade,
+    valorUnitario,
+    ...(form.dataOperacao ? { dataOperacao: new Date(form.dataOperacao).toISOString() } : {}),
+    ...(form.carteiraId ? { carteiraId: form.carteiraId } : {}),
+  };
+}
+
+function parseBatchInput(value: string): OperacaoAcaoPayload[] {
+  const rows = value
+    .split("\n")
+    .map((row) => row.trim())
+    .filter(Boolean);
+
+  if (rows.length === 0) {
+    throw new Error("Informe ao menos uma linha no lote.");
+  }
+
+  return rows.map((row, index) => {
+    const [tickerRaw, quantidadeRaw, valorRaw, dataRaw] = row.split(",").map((part) => part.trim());
+    const payload = toPayload({
+      ticker: tickerRaw ?? "",
+      quantidade: quantidadeRaw ?? "",
+      valorUnitario: valorRaw ?? "",
+      dataOperacao: dataRaw ?? "",
+      carteiraId: "",
+    });
+
+    if (!tickerRaw || !quantidadeRaw || !valorRaw) {
+      throw new Error(`Linha ${index + 1}: use TICKER,QUANTIDADE,VALOR.`);
+    }
+
+    return payload;
+  });
+}
+
+function metricTone(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value === 0) {
+    return "text-slate-900";
+  }
+
+  return value < 0 ? "text-red-700" : "text-emerald-700";
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  placeholder?: string;
+}) {
+  return (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-sm font-semibold text-slate-800">{label}</span>
+      <input
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+      />
+    </label>
+  );
+}
+
+function EmptyState({ message }: { message: string }) {
+  return <div className="px-5 py-8 text-center text-sm text-slate-500">{message}</div>;
 }
 
 export default function AcoesPage() {
+  const [positions, setPositions] = useState<ListarAcoesResponse | null>(null);
+  const [loosePositions, setLoosePositions] = useState<ListarAcoesResponse | null>(null);
+  const [performance, setPerformance] = useState<PerformanceAcoesResponse | null>(null);
+  const [operations, setOperations] = useState<OperacoesAcoesResponse | null>(null);
+  const [salesResult, setSalesResult] = useState<ResultadoVendasResponse | null>(null);
+  const [tickers, setTickers] = useState<ListarTickersResponse | null>(null);
+  const [wallets, setWallets] = useState<ListarCarteirasResponse | null>(null);
+  const [selectedPosition, setSelectedPosition] = useState<PosicaoAcao | null>(null);
+  const [lookupTicker, setLookupTicker] = useState("");
+  const [operationMode, setOperationMode] = useState<ActionMode>("compra");
+  const [operationForm, setOperationForm] = useState<OperationForm>(emptyForm);
+  const [batchMode, setBatchMode] = useState<ActionMode>("compra");
+  const [batchText, setBatchText] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function loadData() {
+    setIsLoading(true);
+    setError(null);
+
+    const results = await Promise.allSettled([
+        listAcoes(),
+        listAcoesAvulsas(),
+        getPerformanceAcoes(),
+        listOperacoesAcoes(),
+        listResultadoVendas(),
+        listTickers(),
+        listCarteiras(),
+      ]);
+
+    const [
+      positionsResult,
+      looseResult,
+      performanceResult,
+      operationsResult,
+      salesResultData,
+      tickersResult,
+      walletsResult,
+    ] = results;
+
+    if (positionsResult.status === "fulfilled") {
+      setPositions(positionsResult.value);
+    }
+    if (looseResult.status === "fulfilled") {
+      setLoosePositions(looseResult.value);
+    }
+    if (performanceResult.status === "fulfilled") {
+      setPerformance(performanceResult.value);
+    }
+    if (operationsResult.status === "fulfilled") {
+      setOperations(operationsResult.value);
+    }
+    if (salesResultData.status === "fulfilled") {
+      setSalesResult(salesResultData.value);
+    }
+    if (tickersResult.status === "fulfilled") {
+      setTickers(tickersResult.value);
+    }
+    if (walletsResult.status === "fulfilled") {
+      setWallets(walletsResult.value);
+    }
+
+    const firstRejected = results.find((result) => result.status === "rejected");
+    if (firstRejected?.status === "rejected") {
+      const apiError = firstRejected.reason as ApiError;
+      setError(apiError.message);
+    }
+
+    setIsLoading(false);
+  }
+
+  useEffect(() => {
+    void loadData();
+  }, []);
+
+  const topPerformance = useMemo(() => {
+    return [...(performance?.items ?? [])].sort((a, b) => b.valorInvestido - a.valorInvestido).slice(0, 8);
+  }, [performance]);
+
+  async function handleOperationSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setNotice(null);
+    setError(null);
+
+    try {
+      const payload = toPayload(operationForm);
+      if (operationMode === "compra") {
+        await registrarCompra(payload);
+        setNotice(`Compra de ${payload.ticker} registrada.`);
+      } else {
+        await registrarVenda(payload);
+        setNotice(`Venda de ${payload.ticker} registrada.`);
+      }
+      setOperationForm(emptyForm);
+      await loadData();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : (err as ApiError).message;
+      setError(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleBatchSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setNotice(null);
+    setError(null);
+
+    try {
+      const payload = parseBatchInput(batchText);
+      if (batchMode === "compra") {
+        const result = await registrarComprasLote(payload);
+        setNotice(`${result.totalCompras} compras registradas no lote.`);
+      } else {
+        const result = await registrarVendasLote(payload);
+        setNotice(`${result.totalVendas} vendas registradas no lote.`);
+      }
+      setBatchText("");
+      await loadData();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : (err as ApiError).message;
+      setError(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleLookup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setNotice(null);
+    setError(null);
+
+    try {
+      const result = await getAcaoByTicker(lookupTicker.trim().toUpperCase());
+      setSelectedPosition(result);
+    } catch (err) {
+      const apiError = err as ApiError;
+      setSelectedPosition(null);
+      setError(apiError.message);
+    }
+  }
+
   return (
-    <AppShell title="Acoes" subtitle="Telas geradas a partir do Swagger do backend">
-      <div className="grid gap-4 lg:grid-cols-2">
-        <EndpointTester title="Healthcheck" endpoint="GET /" onSubmit={() => healthcheck()} />
+    <AppShell title="Acoes" subtitle="Registre operacoes, acompanhe posicoes e veja o resultado dos ativos.">
+      {notice ? <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{notice}</p> : null}
+      {error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
 
-        <EndpointTester
-          title="Cadastrar acao"
-          endpoint="POST /acoes"
-          fields={[
-            { name: "ticker", label: "Ticker", required: true, placeholder: "PETR4" },
-            { name: "nome", label: "Nome", required: true, placeholder: "Petrobras PN" },
-          ]}
-          onSubmit={(values) => createAcao({ ticker: values.ticker, nome: values.nome })}
-        />
+      <section className="grid gap-4 md:grid-cols-4">
+        <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Investido</p>
+          <p className="mt-3 text-2xl font-semibold">{formatCurrency(performance?.valorInvestidoTotal)}</p>
+        </article>
+        <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Valor atual</p>
+          <p className="mt-3 text-2xl font-semibold">{formatCurrency(performance?.valorAtualTotal)}</p>
+        </article>
+        <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Resultado</p>
+          <p className={`mt-3 text-2xl font-semibold ${metricTone(performance?.variacaoAbsolutaTotal)}`}>
+            {formatCurrency(performance?.variacaoAbsolutaTotal)}
+          </p>
+        </article>
+        <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ativos</p>
+          <p className="mt-3 text-2xl font-semibold">{positions?.totalAtivos ?? 0}</p>
+        </article>
+      </section>
 
-        <EndpointTester title="Listar acoes" endpoint="GET /acoes" onSubmit={() => listAcoes()} />
+      <section className="grid gap-5 xl:grid-cols-[390px_1fr]">
+        <div className="space-y-5">
+          <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex rounded-md border border-slate-200 bg-slate-50 p-1 text-sm">
+              {(["compra", "venda"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={`flex-1 rounded px-3 py-2 font-semibold ${
+                    operationMode === mode ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"
+                  }`}
+                  onClick={() => setOperationMode(mode)}
+                >
+                  {mode === "compra" ? "Compra" : "Venda"}
+                </button>
+              ))}
+            </div>
 
-        <EndpointTester
-          title="Atualizar cotacoes"
-          endpoint="POST /acoes/cotacoes/atualizar"
-          onSubmit={() => updateCotacoes()}
-        />
+            <form className="mt-5 space-y-4" onSubmit={handleOperationSubmit}>
+              <Field
+                label="Ticker"
+                value={operationForm.ticker}
+                placeholder="PETR4"
+                onChange={(value) => setOperationForm((current) => ({ ...current, ticker: value }))}
+              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="Quantidade"
+                  value={operationForm.quantidade}
+                  type="number"
+                  placeholder="100"
+                  onChange={(value) => setOperationForm((current) => ({ ...current, quantidade: value }))}
+                />
+                <Field
+                  label="Valor unitario"
+                  value={operationForm.valorUnitario}
+                  type="number"
+                  placeholder="29.50"
+                  onChange={(value) => setOperationForm((current) => ({ ...current, valorUnitario: value }))}
+                />
+              </div>
+              <Field
+                label="Data da operacao"
+                value={operationForm.dataOperacao}
+                type="datetime-local"
+                onChange={(value) => setOperationForm((current) => ({ ...current, dataOperacao: value }))}
+              />
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-semibold text-slate-800">Carteira</span>
+                <select
+                  value={operationForm.carteiraId}
+                  onChange={(event) => setOperationForm((current) => ({ ...current, carteiraId: event.target.value }))}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+                >
+                  <option value="">Avulsa</option>
+                  {wallets?.items.map((wallet) => (
+                    <option key={wallet.id} value={wallet.id}>
+                      {wallet.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:opacity-70"
+              >
+                {isSubmitting ? "Registrando..." : operationMode === "compra" ? "Registrar compra" : "Registrar venda"}
+              </button>
+            </form>
+          </article>
 
-        <EndpointTester
-          title="Buscar acao por id"
-          endpoint="GET /acoes/{id}"
-          fields={[{ name: "id", label: "ID da acao", required: true }]}
-          onSubmit={(values) => getAcaoById(values.id)}
-        />
+          <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 className="text-lg font-semibold">Lote manual</h2>
+            <p className="mt-1 text-sm text-slate-600">Uma operacao por linha: TICKER,QUANTIDADE,VALOR,DATA opcional.</p>
+            <form className="mt-4 space-y-4" onSubmit={handleBatchSubmit}>
+              <div className="flex rounded-md border border-slate-200 bg-slate-50 p-1 text-sm">
+                {(["compra", "venda"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={`flex-1 rounded px-3 py-2 font-semibold ${
+                      batchMode === mode ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"
+                    }`}
+                    onClick={() => setBatchMode(mode)}
+                  >
+                    {mode === "compra" ? "Compras" : "Vendas"}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={batchText}
+                onChange={(event) => setBatchText(event.target.value)}
+                rows={5}
+                placeholder={"PETR4,10,29.50\nVALE3,5,58.10"}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+              />
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full rounded-md border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-70"
+              >
+                {isSubmitting ? "Registrando lote..." : "Registrar lote"}
+              </button>
+            </form>
+          </article>
+        </div>
 
-        <EndpointTester
-          title="Atualizar acao"
-          endpoint="PATCH /acoes/{id}"
-          fields={[
-            { name: "id", label: "ID da acao", required: true },
-            { name: "ticker", label: "Ticker (opcional)" },
-            { name: "nome", label: "Nome (opcional)" },
-          ]}
-          onSubmit={(values) =>
-            updateAcao(values.id, {
-              ...(values.ticker.trim() ? { ticker: values.ticker } : {}),
-              ...(values.nome.trim() ? { nome: values.nome } : {}),
-            })
-          }
-        />
+        <div className="space-y-5">
+          <article className="rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="flex flex-col gap-3 border-b border-slate-200 p-5 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Posicoes</h2>
+                <p className="mt-1 text-sm text-slate-600">Quantidade, preco medio, cotacao e variacao por ativo.</p>
+              </div>
+              <button
+                type="button"
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={() => void loadData()}
+              >
+                Atualizar
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3">Ticker</th>
+                    <th className="px-5 py-3">Qtd.</th>
+                    <th className="px-5 py-3">Preco medio</th>
+                    <th className="px-5 py-3">Investido</th>
+                    <th className="px-5 py-3">Atual</th>
+                    <th className="px-5 py-3">Variacao</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {positions?.items.map((item) => (
+                    <tr key={item.ticker}>
+                      <td className="px-5 py-3 font-semibold">{item.ticker}</td>
+                      <td className="px-5 py-3">{item.quantidade}</td>
+                      <td className="px-5 py-3">{formatCurrency(item.precoMedio)}</td>
+                      <td className="px-5 py-3">{formatCurrency(item.valorInvestido)}</td>
+                      <td className="px-5 py-3">{formatCurrency(item.valorAtual)}</td>
+                      <td className={`px-5 py-3 font-semibold ${metricTone(item.variacaoAbsoluta)}`}>
+                        {formatPercent(item.variacaoPercentual)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!isLoading && (positions?.items.length ?? 0) === 0 ? (
+                <EmptyState message="Nenhuma posicao ativa. Registre uma compra para iniciar o acompanhamento." />
+              ) : null}
+            </div>
+          </article>
 
-        <EndpointTester
-          title="Remover acao"
-          endpoint="DELETE /acoes/{id}"
-          fields={[{ name: "id", label: "ID da acao", required: true }]}
-          onSubmit={(values) => deleteAcao(values.id)}
-        />
+          <section className="grid gap-5 lg:grid-cols-2">
+            <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-semibold">Consultar ticker</h2>
+              <form className="mt-4 flex gap-2" onSubmit={handleLookup}>
+                <input
+                  value={lookupTicker}
+                  onChange={(event) => setLookupTicker(event.target.value)}
+                  placeholder="PETR4"
+                  className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+                />
+                <button className="rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white" type="submit">
+                  Buscar
+                </button>
+              </form>
+              {selectedPosition ? (
+                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-slate-500">Quantidade</p>
+                    <p className="font-semibold">{selectedPosition.quantidade}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Preco medio</p>
+                    <p className="font-semibold">{formatCurrency(selectedPosition.precoMedio)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Investido</p>
+                    <p className="font-semibold">{formatCurrency(selectedPosition.valorInvestido)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Variacao</p>
+                    <p className={`font-semibold ${metricTone(selectedPosition.variacaoAbsoluta)}`}>
+                      {formatPercent(selectedPosition.variacaoPercentual)}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+            </article>
 
-        <EndpointTester
-          title="Criar evento corporativo"
-          endpoint="POST /acoes/{id}/eventos-corporativos"
-          fields={[
-            { name: "id", label: "ID da acao", required: true },
-            { name: "tipo", label: "Tipo", required: true, placeholder: "SPLIT | INCORPORACAO | TROCA_TICKER" },
-            {
-              name: "effectiveAt",
-              label: "Data efetiva (ISO, opcional)",
-              placeholder: "2026-02-20T10:00:00.000Z",
-            },
-            { name: "ratioNumerator", label: "Numerador razao (opcional)", type: "number" },
-            { name: "ratioDenominator", label: "Denominador razao (opcional)", type: "number" },
-            { name: "fractionTreatment", label: "Tratamento de fracao (opcional)" },
-            { name: "newTicker", label: "Novo ticker (opcional)" },
-            { name: "observacao", label: "Observacao (opcional)" },
-          ]}
-          onSubmit={(values) =>
-            createEventoCorporativo(values.id, {
-              tipo: values.tipo,
-              ...(values.effectiveAt.trim() ? { effectiveAt: values.effectiveAt } : {}),
-              ...(values.fractionTreatment.trim() ? { fractionTreatment: values.fractionTreatment } : {}),
-              ...(values.newTicker.trim() ? { newTicker: values.newTicker } : {}),
-              ...(values.observacao.trim() ? { observacao: values.observacao } : {}),
-              ...(toOptionalNumber(values.ratioNumerator) !== undefined
-                ? { ratioNumerator: toOptionalNumber(values.ratioNumerator) }
-                : {}),
-              ...(toOptionalNumber(values.ratioDenominator) !== undefined
-                ? { ratioDenominator: toOptionalNumber(values.ratioDenominator) }
-                : {}),
-            })
-          }
-        />
-      </div>
+            <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-semibold">Acoes avulsas</h2>
+              <p className="mt-1 text-sm text-slate-600">Posicoes ainda sem carteira vinculada.</p>
+              <p className="mt-5 text-3xl font-semibold">{loosePositions?.totalAtivos ?? 0}</p>
+              <p className="mt-1 text-sm text-slate-500">ativos avulsos</p>
+            </article>
+          </section>
+
+          <article className="rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 p-5">
+              <h2 className="text-lg font-semibold">Performance por ativo</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3">Ticker</th>
+                    <th className="px-5 py-3">Referencia</th>
+                    <th className="px-5 py-3">Atual</th>
+                    <th className="px-5 py-3">Resultado</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {topPerformance.map((item) => (
+                    <tr key={item.ticker}>
+                      <td className="px-5 py-3 font-semibold">{item.ticker}</td>
+                      <td className="px-5 py-3">{formatCurrency(item.precoReferencia)}</td>
+                      <td className="px-5 py-3">{formatCurrency(item.valorAtual)}</td>
+                      <td className={`px-5 py-3 font-semibold ${metricTone(item.variacaoAbsoluta)}`}>
+                        {formatCurrency(item.variacaoAbsoluta)} ({formatPercent(item.variacaoPercentual)})
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!isLoading && topPerformance.length === 0 ? <EmptyState message="Sem dados de performance." /> : null}
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[1fr_360px]">
+        <article className="rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 p-5">
+            <h2 className="text-lg font-semibold">Historico de operacoes</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-5 py-3">Data</th>
+                  <th className="px-5 py-3">Tipo</th>
+                  <th className="px-5 py-3">Ticker</th>
+                  <th className="px-5 py-3">Qtd.</th>
+                  <th className="px-5 py-3">Valor</th>
+                  <th className="px-5 py-3">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {operations?.items.slice(0, 12).map((item) => (
+                  <tr key={item.id}>
+                    <td className="px-5 py-3">{formatDate(item.dataOperacao)}</td>
+                    <td className="px-5 py-3">
+                      <span
+                        className={`rounded px-2 py-1 text-xs font-semibold ${
+                          item.tipoOperacao === "COMPRA" ? "bg-blue-50 text-blue-700" : "bg-amber-50 text-amber-700"
+                        }`}
+                      >
+                        {item.tipoOperacao}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 font-semibold">{item.ticker}</td>
+                    <td className="px-5 py-3">{item.quantidade}</td>
+                    <td className="px-5 py-3">{formatCurrency(item.valorUnitario)}</td>
+                    <td className="px-5 py-3">{formatCurrency(item.valorTotal)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!isLoading && (operations?.items.length ?? 0) === 0 ? <EmptyState message="Nenhuma operacao registrada." /> : null}
+          </div>
+        </article>
+
+        <aside className="space-y-5">
+          <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 className="text-lg font-semibold">Resultado das vendas</h2>
+            <p className={`mt-4 text-3xl font-semibold ${metricTone(salesResult?.ganhoPerdaTotal)}`}>
+              {formatCurrency(salesResult?.ganhoPerdaTotal)}
+            </p>
+            <p className="mt-1 text-sm text-slate-500">{salesResult?.totalVendas ?? 0} vendas registradas</p>
+          </article>
+
+          <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 className="text-lg font-semibold">Tickers cadastrados</h2>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {tickers?.items.slice(0, 18).map((item) => (
+                <span key={item.id} className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                  {item.ticker}
+                  {typeof item.ultimaCotacao === "number" ? ` ${formatNumber(item.ultimaCotacao)}` : ""}
+                </span>
+              ))}
+              {!isLoading && (tickers?.items.length ?? 0) === 0 ? <p className="text-sm text-slate-500">Nenhum ticker cadastrado.</p> : null}
+            </div>
+          </article>
+        </aside>
+      </section>
     </AppShell>
   );
 }

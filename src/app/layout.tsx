@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Gerenciador de Acoes - Auth",
-  description: "Telas de autenticacao para API NestJS",
+  title: "Gerenciador de Acoes",
+  description: "Aplicacao para gerenciar acoes, carteiras e performance.",
 };
 
 export default function RootLayout({

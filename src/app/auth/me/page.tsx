@@ -1,72 +1,82 @@
 "use client";
 
-import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AuthShell } from "@/components/auth/AuthShell";
-import { clearAuthToken, getAuthToken, getMe } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { AppShell } from "@/components/layout/AppShell";
+import { clearAuthToken, getMe } from "@/lib/api";
 import type { ApiError } from "@/lib/api";
 
 export default function MePage() {
   const router = useRouter();
-  const [response, setResponse] = useState<Record<string, unknown> | null>(null);
+  const [email, setEmail] = useState<string>("");
+  const [userId, setUserId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  async function handleGetMe() {
-    setIsLoading(true);
-    setError(null);
+  useEffect(() => {
+    let active = true;
 
-    try {
-      const token = getAuthToken();
-      const data = await getMe(token);
-      setResponse(data);
-    } catch (err) {
-      const apiError = err as ApiError;
-      setError(apiError.message);
-      setResponse(null);
-    } finally {
-      setIsLoading(false);
+    async function loadUser() {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const data = await getMe();
+        if (!active) {
+          return;
+        }
+        setEmail(typeof data.email === "string" ? data.email : "");
+        setUserId(typeof data.userId === "string" ? data.userId : "");
+      } catch (err) {
+        const apiError = err as ApiError;
+        if (active) {
+          setError(apiError.message);
+        }
+      } finally {
+        if (active) {
+          setIsLoading(false);
+        }
+      }
     }
-  }
+
+    void loadUser();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function handleLogout() {
     clearAuthToken();
-    setResponse(null);
-    setError(null);
     router.push("/auth/login");
   }
 
   return (
-    <AuthShell title="Meu perfil" subtitle="GET /auth/me (usa token salvo no login)">
-      <div className="flex flex-wrap gap-3">
+    <AppShell title="Conta" subtitle="Sessao atual e acesso ao sistema.">
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        {isLoading ? <p className="text-sm text-slate-600">Carregando dados da conta...</p> : null}
+        {error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+        {!isLoading && !error ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Email</p>
+              <p className="mt-1 text-lg font-semibold">{email || "Nao informado"}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Identificador</p>
+              <p className="mt-1 break-all text-sm text-slate-700">{userId || "Nao informado"}</p>
+            </div>
+          </div>
+        ) : null}
         <button
           type="button"
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700 disabled:opacity-70"
-          disabled={isLoading}
-          onClick={handleGetMe}
-        >
-          {isLoading ? "Buscando..." : "Buscar /auth/me"}
-        </button>
-        <button
-          type="button"
-          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700"
+          className="mt-5 rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           onClick={handleLogout}
         >
-          Limpar token
+          Sair da conta
         </button>
-      </div>
-
-      {error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
-
-      <div className="space-y-2">
-        <p className="text-sm text-slate-600">
-          Token salvo: <code>{getAuthToken() ? "sim" : "nao"}</code>
-        </p>
-
-        <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
-          {JSON.stringify(response, null, 2) || "Sem resposta ainda"}
-        </pre>
-      </div>
-    </AuthShell>
+      </section>
+    </AppShell>
   );
 }
+

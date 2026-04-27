@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { type FormEvent, useState } from "react";
 import { AuthForm, Feedback, FormField, SubmitButton } from "@/components/auth/AuthForm";
 import { AuthShell } from "@/components/auth/AuthShell";
@@ -19,8 +20,8 @@ export default function ForgotPasswordPage() {
     setSuccess(null);
 
     try {
-      const data = await forgotPassword({ email });
-      setSuccess(`Solicitacao enviada. Resposta: ${JSON.stringify(data)}`);
+      await forgotPassword({ email });
+      setSuccess("Se o email estiver cadastrado, enviaremos as instrucoes de redefinicao.");
     } catch (err) {
       const apiError = err as ApiError;
       setError(apiError.message);
@@ -30,12 +31,26 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <AuthShell title="Esqueci minha senha" subtitle="POST /auth/password/forgot">
+    <AuthShell title="Recuperar senha" subtitle="Informe o email da conta para receber um link de redefinicao.">
       <AuthForm onSubmit={onSubmit}>
-        <FormField id="email" label="Email" type="email" value={email} required onChange={setEmail} />
-        <SubmitButton label="Enviar" loadingLabel="Enviando..." isLoading={isLoading} />
+        <FormField
+          id="email"
+          label="Email"
+          type="email"
+          value={email}
+          required
+          autoComplete="email"
+          placeholder="voce@email.com"
+          onChange={setEmail}
+        />
+        <SubmitButton label="Enviar instrucoes" loadingLabel="Enviando..." isLoading={isLoading} />
         <Feedback error={error} success={success} />
       </AuthForm>
+
+      <Link className="text-sm font-semibold text-blue-700 hover:text-blue-900" href="/auth/login">
+        Voltar para login
+      </Link>
     </AuthShell>
   );
 }
+

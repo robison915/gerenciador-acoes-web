@@ -19,6 +19,17 @@ function toApiError(message: string, status?: number): ApiError {
   return { message, status };
 }
 
+function redirectToLogin() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const redirect = `${window.location.pathname}${window.location.search}`;
+  const loginUrl = new URL("/auth/login", window.location.origin);
+  loginUrl.searchParams.set("redirect", redirect);
+  window.location.assign(loginUrl.toString());
+}
+
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const url = `${API_BASE_URL}${path}`;
   const token = options.token ?? (options.withAuth ? getAuthToken() : null);
@@ -52,6 +63,11 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (!response.ok) {
+    if (response.status === 401 && options.withAuth) {
+      clearAuthToken();
+      redirectToLogin();
+    }
+
     const maybeData = data as { message?: string | string[] } | null;
     const message =
       maybeData?.message && typeof maybeData.message === "string"
@@ -83,6 +99,158 @@ export type ForgotPasswordPayload = {
 export type ResetPasswordPayload = {
   token: string;
   newPassword: string;
+};
+
+export type OperacaoAcaoPayload = {
+  ticker: string;
+  quantidade: number;
+  valorUnitario: number;
+  dataOperacao?: string;
+  carteiraId?: string;
+};
+
+export type OperacaoAcaoResponse = OperacaoAcaoPayload & {
+  id: string;
+  userId: string;
+  valorTotal: number;
+  tipoOperacao: "COMPRA" | "VENDA";
+  dataOperacao: string;
+  createdAt: string;
+  criterioApuracao?: "FIFO";
+  custoTotal?: number;
+  lucroRealizado?: number;
+};
+
+export type PosicaoAcao = {
+  ticker: string;
+  quantidade: number;
+  precoMedio: number;
+  valorInvestido: number;
+  cotacaoAtual: number | null;
+  valorAtual: number | null;
+  variacaoAbsoluta: number | null;
+  variacaoPercentual: number | null;
+  totalOperacoesCompra: number;
+  totalOperacoesVenda?: number;
+};
+
+export type ListarAcoesResponse = {
+  items: PosicaoAcao[];
+  totalAtivos: number;
+};
+
+export type PerformanceAcao = {
+  ticker: string;
+  quantidade: number;
+  precoMedio: number;
+  precoReferencia: number;
+  valorInvestido: number;
+  valorAtual: number;
+  variacaoAbsoluta: number;
+  variacaoPercentual: number;
+};
+
+export type PerformanceAcoesResponse = {
+  items: PerformanceAcao[];
+  totalAtivos: number;
+  valorInvestidoTotal: number;
+  valorAtualTotal: number;
+  variacaoAbsolutaTotal: number;
+  variacaoPercentualTotal: number;
+};
+
+export type OperacoesAcoesResponse = {
+  items: OperacaoAcaoResponse[];
+  totalOperacoes: number;
+};
+
+export type ResultadoVenda = OperacaoAcaoResponse & {
+  criterioApuracao: "FIFO";
+  custoTotal: number;
+  ganhoPerda: number;
+  tipoResultado: "GANHO" | "PERDA" | "EMPATE";
+};
+
+export type ResultadoVendasResponse = {
+  items: ResultadoVenda[];
+  totalVendas: number;
+  ganhoPerdaTotal: number;
+};
+
+export type TickerCadastrado = {
+  id: string;
+  ticker: string;
+  ultimaCotacao: number | null;
+  dataHoraUltimaCotacao: string | null;
+  createdAt: string;
+};
+
+export type ListarTickersResponse = {
+  items: TickerCadastrado[];
+  totalTickers: number;
+};
+
+export type Carteira = {
+  id: string;
+  userId: string;
+  nome: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CarteiraPosicao = {
+  ticker: string;
+  quantidade: number;
+  precoMedio: number;
+  valorInvestido: number;
+  cotacaoAtual: number | null;
+  valorAtual: number | null;
+  variacaoAbsoluta: number | null;
+  variacaoPercentual: number | null;
+};
+
+export type CarteiraDetalhe = Carteira & {
+  posicoes: CarteiraPosicao[];
+  totalAtivos: number;
+  valorInvestidoTotal: number;
+  valorAtualTotal: number;
+  variacaoAbsolutaTotal: number;
+  variacaoPercentualTotal: number;
+};
+
+export type ListarCarteirasResponse = {
+  items: Carteira[];
+  totalCarteiras: number;
+};
+
+export type MovimentarAcaoCarteiraPayload = {
+  ticker: string;
+  quantidade: number;
+  dataOperacao?: string;
+};
+
+export type RemoverAcaoCarteiraPayload = {
+  quantidade: number;
+  dataOperacao?: string;
+};
+
+export type MovimentarAcaoEntreCarteirasPayload = {
+  carteiraOrigemId: string;
+  carteiraDestinoId: string;
+  ticker: string;
+  quantidade: number;
+  dataOperacao?: string;
+};
+
+export type MovimentarAcaoCarteiraResponse = {
+  ticker: string;
+  quantidade: number;
+  valorUnitario: number;
+  carteiraOrigemId: string | null;
+  carteiraDestinoId: string | null;
+  vendaOperacaoId: string;
+  compraOperacaoId: string;
+  dataOperacao: string;
 };
 
 export function healthcheck() {
@@ -142,107 +310,115 @@ export function getMe(token?: string | null) {
   });
 }
 
-export function createAcao(payload: { ticker: string; nome: string }) {
-  return apiRequest<unknown>("/acoes", { method: "POST", body: payload, withAuth: true });
-}
-
-export function listAcoes() {
-  return apiRequest<unknown>("/acoes", { method: "GET", withAuth: true });
-}
-
-export function updateCotacoes() {
-  return apiRequest<unknown>("/acoes/cotacoes/atualizar", { method: "POST", withAuth: true });
-}
-
-export function getAcaoById(id: string) {
-  return apiRequest<unknown>(`/acoes/${id}`, { method: "GET", withAuth: true });
-}
-
-export function updateAcao(id: string, payload: { ticker?: string; nome?: string }) {
-  return apiRequest<unknown>(`/acoes/${id}`, { method: "PATCH", body: payload, withAuth: true });
-}
-
-export function deleteAcao(id: string) {
-  return apiRequest<unknown>(`/acoes/${id}`, { method: "DELETE", withAuth: true });
-}
-
-export function createEventoCorporativo(
-  id: string,
-  payload: {
-    tipo: string;
-    effectiveAt?: string;
-    ratioNumerator?: number;
-    ratioDenominator?: number;
-    fractionTreatment?: string;
-    newTicker?: string;
-    observacao?: string;
-  },
-) {
-  return apiRequest<unknown>(`/acoes/${id}/eventos-corporativos`, {
+export function registrarCompra(payload: OperacaoAcaoPayload) {
+  return apiRequest<OperacaoAcaoResponse>("/acoes/compras", {
     method: "POST",
     body: payload,
     withAuth: true,
   });
 }
 
-export function createCarteira(payload: { nome: string }) {
-  return apiRequest<unknown>("/carteiras", { method: "POST", body: payload, withAuth: true });
+export function registrarComprasLote(compras: OperacaoAcaoPayload[]) {
+  return apiRequest<{
+    items: OperacaoAcaoResponse[];
+    totalCompras: number;
+    valorTotalLote: number;
+  }>("/acoes/compras/lote", {
+    method: "POST",
+    body: { compras },
+    withAuth: true,
+  });
 }
 
-export function listCarteiras() {
-  return apiRequest<unknown>("/carteiras", { method: "GET", withAuth: true });
-}
-
-export function getCarteiraById(id: string) {
-  return apiRequest<unknown>(`/carteiras/${id}`, { method: "GET", withAuth: true });
-}
-
-export function updateCarteira(id: string, payload: { nome?: string }) {
-  return apiRequest<unknown>(`/carteiras/${id}`, { method: "PATCH", body: payload, withAuth: true });
-}
-
-export function deleteCarteira(id: string) {
-  return apiRequest<unknown>(`/carteiras/${id}`, { method: "DELETE", withAuth: true });
-}
-
-export function addAcaoCarteira(
-  id: string,
-  payload: { acaoId: string; quantidade?: number; precoMedio?: number },
-) {
-  return apiRequest<unknown>(`/carteiras/${id}/acoes`, { method: "POST", body: payload, withAuth: true });
-}
-
-export function updatePosicaoCarteira(
-  id: string,
-  acaoId: string,
-  payload: { quantidade?: number; precoMedio?: number },
-) {
-  return apiRequest<unknown>(`/carteiras/${id}/acoes/${acaoId}/posicao`, {
-    method: "PATCH",
+export function registrarVenda(payload: OperacaoAcaoPayload) {
+  return apiRequest<OperacaoAcaoResponse>("/acoes/vendas", {
+    method: "POST",
     body: payload,
     withAuth: true,
   });
 }
 
-export function removeAcaoCarteira(id: string, acaoId: string) {
-  return apiRequest<unknown>(`/carteiras/${id}/acoes/${acaoId}`, { method: "DELETE", withAuth: true });
+export function registrarVendasLote(vendas: OperacaoAcaoPayload[]) {
+  return apiRequest<{
+    items: OperacaoAcaoResponse[];
+    totalVendas: number;
+    valorTotalLote: number;
+  }>("/acoes/vendas/lote", {
+    method: "POST",
+    body: { vendas },
+    withAuth: true,
+  });
 }
 
-export function transferirAcao(payload: {
-  carteiraOrigemId: string;
-  carteiraDestinoId: string;
-  acaoId: string;
-  quantidade: number;
-}) {
-  return apiRequest<unknown>("/carteiras/transferencias", { method: "POST", body: payload, withAuth: true });
+export function listAcoes() {
+  return apiRequest<ListarAcoesResponse>("/acoes", { method: "GET", withAuth: true });
 }
 
-export function getCarteiraResumo(id: string) {
-  return apiRequest<unknown>(`/carteiras/${id}/resumo`, { method: "GET", withAuth: true });
+export function listAcoesAvulsas() {
+  return apiRequest<ListarAcoesResponse>("/acoes/avulsas", { method: "GET", withAuth: true });
 }
 
-export function getResumoAcoesUsuario() {
-  return apiRequest<unknown>("/carteiras/acoes/resumo", { method: "GET", withAuth: true });
+export function getAcaoByTicker(ticker: string) {
+  return apiRequest<PosicaoAcao>(`/acoes/${encodeURIComponent(ticker)}`, { method: "GET", withAuth: true });
+}
+
+export function listOperacoesAcoes() {
+  return apiRequest<OperacoesAcoesResponse>("/acoes/operacoes", { method: "GET", withAuth: true });
+}
+
+export function listResultadoVendas() {
+  return apiRequest<ResultadoVendasResponse>("/acoes/vendas/resultado", { method: "GET", withAuth: true });
+}
+
+export function getPerformanceAcoes() {
+  return apiRequest<PerformanceAcoesResponse>("/acoes/performance", { method: "GET", withAuth: true });
+}
+
+export function listTickers() {
+  return apiRequest<ListarTickersResponse>("/acoes/tickers", { method: "GET", withAuth: true });
+}
+
+export function createCarteira(payload: { nome: string }) {
+  return apiRequest<Carteira>("/carteiras", { method: "POST", body: payload, withAuth: true });
+}
+
+export function listCarteiras() {
+  return apiRequest<ListarCarteirasResponse>("/carteiras", { method: "GET", withAuth: true });
+}
+
+export function getCarteiraById(id: string) {
+  return apiRequest<CarteiraDetalhe>(`/carteiras/${id}`, { method: "GET", withAuth: true });
+}
+
+export function deleteCarteira(id: string) {
+  return apiRequest<{ ok: true }>(`/carteiras/${id}`, { method: "DELETE", withAuth: true });
+}
+
+export function adicionarAcaoAvulsaEmCarteira(carteiraId: string, payload: MovimentarAcaoCarteiraPayload) {
+  return apiRequest<MovimentarAcaoCarteiraResponse>(`/carteiras/${encodeURIComponent(carteiraId)}/acoes`, {
+    method: "POST",
+    body: payload,
+    withAuth: true,
+  });
+}
+
+export function removerAcaoDaCarteira(carteiraId: string, ticker: string, payload: RemoverAcaoCarteiraPayload) {
+  return apiRequest<MovimentarAcaoCarteiraResponse>(
+    `/carteiras/${encodeURIComponent(carteiraId)}/acoes/${encodeURIComponent(ticker)}`,
+    {
+      method: "DELETE",
+      body: payload,
+      withAuth: true,
+    },
+  );
+}
+
+export function movimentarAcaoEntreCarteiras(payload: MovimentarAcaoEntreCarteirasPayload) {
+  return apiRequest<MovimentarAcaoCarteiraResponse>("/carteiras/movimentacoes", {
+    method: "POST",
+    body: payload,
+    withAuth: true,
+  });
 }
 
 export function getAuthToken(): string | null {

@@ -59,6 +59,8 @@ npm run check
 - `/auth/me`: dados da conta e logout.
 - `/acoes`: gerenciamento operacional de acoes com compras, vendas, lote, posicoes, performance, historico, resultado de vendas, tickers e acoes avulsas.
 - `/carteiras`: gerenciamento operacional de carteiras com criacao, listagem, detalhe e exclusao usando os endpoints atuais do backend.
+- `/admin/login`: entrada administrativa.
+- `/admin`: administracao de eventos corporativos, importacao de eventos por XLSX e criacao de administradores.
 
 ## Estado Atual
 Implementado:
@@ -69,7 +71,9 @@ Implementado:
 - Shell visual para areas autenticadas.
 - Visao geral autenticada.
 - Painel operacional de acoes usando endpoints reais do backend.
+- Leitura de arquivo XLSX de negociacao da B3 na area de lote de acoes, convertendo compras e vendas para os endpoints existentes e considerando eventos corporativos cadastrados para validar saldo.
 - Tela operacional de carteiras usando endpoints reais do backend.
+- Tela administrativa para cadastrar eventos corporativos, importar eventos por XLSX e criar novos administradores.
 - Lint do frontend passando.
 - Build do frontend passando.
 
@@ -103,6 +107,9 @@ Disponiveis no backend atual:
 - `GET /acoes/performance`
 - `GET /acoes/avulsas`
 - `GET /acoes/tickers`
+- `GET /admin/eventos-corporativos`
+- `POST /admin/eventos-corporativos`
+- `POST /admin/usuarios/admins`
 - `POST /carteiras`
 - `GET /carteiras`
 - `GET /carteiras/:carteiraId`

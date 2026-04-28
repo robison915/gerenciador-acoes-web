@@ -7,6 +7,7 @@ const PUBLIC_ROUTES = [
   "/auth/register",
   "/auth/password/forgot",
   "/auth/password/reset",
+  "/admin/login",
 ];
 
 export function proxy(request: NextRequest) {
@@ -15,13 +16,13 @@ export function proxy(request: NextRequest) {
   const isPublicRoute = PUBLIC_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`));
 
   if (!isPublicRoute && !token) {
-    const loginUrl = new URL("/auth/login", request.url);
+    const loginUrl = new URL(pathname.startsWith("/admin") ? "/admin/login" : "/auth/login", request.url);
     loginUrl.searchParams.set("redirect", `${pathname}${search}`);
     return NextResponse.redirect(loginUrl);
   }
 
   if (isPublicRoute && token) {
-    return NextResponse.redirect(new URL("/", request.url));
+    return NextResponse.redirect(new URL(pathname.startsWith("/admin/login") ? "/admin" : "/", request.url));
   }
 
   return NextResponse.next();

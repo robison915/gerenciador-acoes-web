@@ -11,6 +11,7 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
     { href: "/", label: "Visao geral" },
     { href: "/acoes", label: "Acoes" },
     { href: "/carteiras", label: "Carteiras" },
+    { href: "/admin", label: "Administracao" },
     { href: "/auth/me", label: "Conta" },
   ];
 

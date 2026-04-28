@@ -3,6 +3,14 @@ export type ApiError = {
   status?: number;
 };
 
+export type UserRole = "CLIENTE" | "ADMIN";
+
+export type CurrentUser = {
+  userId: string;
+  email: string;
+  role: UserRole;
+};
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "/api";
 
 const AUTH_TOKEN_KEY = "auth_token";
@@ -190,6 +198,23 @@ export type ListarTickersResponse = {
   totalTickers: number;
 };
 
+export type EventoCorporativo = {
+  id: string;
+  ticker: string;
+  tipo: "DESDOBRAMENTO" | "GRUPAMENTO";
+  dataEvento: string;
+  fatorQuantidade: number;
+  fatorPreco: number;
+  observacao: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ListarEventosCorporativosResponse = {
+  items: EventoCorporativo[];
+  totalEventos: number;
+};
+
 export type Carteira = {
   id: string;
   userId: string;
@@ -266,7 +291,7 @@ export function register(payload: RegisterPayload) {
 
 export async function login(payload: LoginPayload) {
   const result = await apiRequest<
-    { accessToken?: string; access_token?: string; token?: string } & Record<string, unknown>
+    { accessToken?: string; access_token?: string; token?: string; user?: { role?: UserRole } } & Record<string, unknown>
   >("/auth/login", {
     method: "POST",
     body: payload,
@@ -303,7 +328,7 @@ export function resetPassword(payload: ResetPasswordPayload) {
 }
 
 export function getMe(token?: string | null) {
-  return apiRequest<Record<string, unknown>>("/auth/me", {
+  return apiRequest<CurrentUser>("/auth/me", {
     method: "GET",
     withAuth: true,
     token,
@@ -376,6 +401,36 @@ export function getPerformanceAcoes() {
 
 export function listTickers() {
   return apiRequest<ListarTickersResponse>("/acoes/tickers", { method: "GET", withAuth: true });
+}
+
+export function listEventosCorporativos() {
+  return apiRequest<ListarEventosCorporativosResponse>("/admin/eventos-corporativos", {
+    method: "GET",
+    withAuth: true,
+  });
+}
+
+export function createEventoCorporativo(payload: {
+  ticker: string;
+  tipo: "DESDOBRAMENTO" | "GRUPAMENTO";
+  dataEvento: string;
+  fatorQuantidade: number;
+  fatorPreco: number;
+  observacao?: string;
+}) {
+  return apiRequest<EventoCorporativo>("/admin/eventos-corporativos", {
+    method: "POST",
+    body: payload,
+    withAuth: true,
+  });
+}
+
+export function createAdminUser(payload: { email: string; password: string }) {
+  return apiRequest<{ id: string; email: string; role: "ADMIN" }>("/admin/usuarios/admins", {
+    method: "POST",
+    body: payload,
+    withAuth: true,
+  });
 }
 
 export function createCarteira(payload: { nome: string }) {

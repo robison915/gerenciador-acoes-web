@@ -1,11 +1,13 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import type {
   ApiError,
+  EventoCorporativo,
   ListarCarteirasResponse,
   ListarAcoesResponse,
+  ListarEventosCorporativosResponse,
   ListarTickersResponse,
   OperacaoAcaoPayload,
   OperacoesAcoesResponse,
@@ -19,6 +21,7 @@ import {
   listAcoes,
   listAcoesAvulsas,
   listCarteiras,
+  listEventosCorporativos,
   listOperacoesAcoes,
   listResultadoVendas,
   listTickers,
@@ -27,6 +30,7 @@ import {
   registrarVenda,
   registrarVendasLote,
 } from "@/lib/api";
+import { parseB3NegociacaoFile, type B3BatchOperation, type B3BatchParseResult } from "@/lib/b3-negociacao";
 
 type OperationForm = {
   ticker: string;
@@ -135,6 +139,74 @@ function parseBatchInput(value: string): OperacaoAcaoPayload[] {
   });
 }
 
+function chunkImportedOperations(operations: B3BatchOperation[], maxSize = 100) {
+  const groups: Array<{ mode: ActionMode; payloads: OperacaoAcaoPayload[] }> = [];
+
+  for (const operation of operations) {
+    const currentGroup = groups[groups.length - 1];
+    if (currentGroup && currentGroup.mode === operation.mode && currentGroup.payloads.length < maxSize) {
+      currentGroup.payloads.push(operation.payload);
+      continue;
+    }
+
+    groups.push({
+      mode: operation.mode,
+      payloads: [operation.payload],
+    });
+  }
+
+  return groups;
+}
+
+function validateImportedOperationBalances(
+  operations: B3BatchOperation[],
+  currentLoosePositions: PosicaoAcao[],
+  corporateEvents: EventoCorporativo[],
+) {
+  const balances = new Map(currentLoosePositions.map((position) => [position.ticker, position.quantidade]));
+  const eventsByTicker = new Map<string, EventoCorporativo[]>();
+  const nextEventIndexByTicker = new Map<string, number>();
+
+  for (const event of corporateEvents) {
+    const events = eventsByTicker.get(event.ticker) ?? [];
+    events.push(event);
+    eventsByTicker.set(event.ticker, events);
+  }
+
+  for (const events of eventsByTicker.values()) {
+    events.sort((left, right) => new Date(left.dataEvento).getTime() - new Date(right.dataEvento).getTime());
+  }
+
+  for (const operation of operations) {
+    const ticker = operation.payload.ticker;
+    const events = eventsByTicker.get(ticker) ?? [];
+    let nextEventIndex = nextEventIndexByTicker.get(ticker) ?? 0;
+    const operationTime = new Date(operation.payload.dataOperacao ?? 0).getTime();
+
+    while (nextEventIndex < events.length && new Date(events[nextEventIndex].dataEvento).getTime() <= operationTime) {
+      const currentBalance = balances.get(ticker) ?? 0;
+      balances.set(ticker, Number((currentBalance * events[nextEventIndex].fatorQuantidade).toFixed(8)));
+      nextEventIndex += 1;
+    }
+    nextEventIndexByTicker.set(ticker, nextEventIndex);
+
+    const currentBalance = balances.get(ticker) ?? 0;
+
+    if (operation.mode === "compra") {
+      balances.set(ticker, currentBalance + operation.payload.quantidade);
+      continue;
+    }
+
+    if (operation.payload.quantidade > currentBalance) {
+      throw new Error(
+        `Linha ${operation.sourceRow}: venda de ${operation.payload.quantidade} ${ticker} excede o saldo avulso disponivel (${currentBalance}). Importe primeiro as compras anteriores desse ticker ou use um arquivo que comece antes da primeira venda. Nenhuma operacao do arquivo foi enviada.`,
+      );
+    }
+
+    balances.set(ticker, currentBalance - operation.payload.quantidade);
+  }
+}
+
 function metricTone(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value) || value === 0) {
     return "text-slate-900";
@@ -181,6 +253,7 @@ export default function AcoesPage() {
   const [operations, setOperations] = useState<OperacoesAcoesResponse | null>(null);
   const [salesResult, setSalesResult] = useState<ResultadoVendasResponse | null>(null);
   const [tickers, setTickers] = useState<ListarTickersResponse | null>(null);
+  const [corporateEvents, setCorporateEvents] = useState<ListarEventosCorporativosResponse | null>(null);
   const [wallets, setWallets] = useState<ListarCarteirasResponse | null>(null);
   const [selectedPosition, setSelectedPosition] = useState<PosicaoAcao | null>(null);
   const [lookupTicker, setLookupTicker] = useState("");
@@ -188,6 +261,8 @@ export default function AcoesPage() {
   const [operationForm, setOperationForm] = useState<OperationForm>(emptyForm);
   const [batchMode, setBatchMode] = useState<ActionMode>("compra");
   const [batchText, setBatchText] = useState("");
+  const [batchFileSummary, setBatchFileSummary] = useState<B3BatchParseResult | null>(null);
+  const [batchFileName, setBatchFileName] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -204,6 +279,7 @@ export default function AcoesPage() {
         listOperacoesAcoes(),
         listResultadoVendas(),
         listTickers(),
+        listEventosCorporativos(),
         listCarteiras(),
       ]);
 
@@ -214,6 +290,7 @@ export default function AcoesPage() {
       operationsResult,
       salesResultData,
       tickersResult,
+      corporateEventsResult,
       walletsResult,
     ] = results;
 
@@ -234,6 +311,9 @@ export default function AcoesPage() {
     }
     if (tickersResult.status === "fulfilled") {
       setTickers(tickersResult.value);
+    }
+    if (corporateEventsResult.status === "fulfilled") {
+      setCorporateEvents(corporateEventsResult.value);
     }
     if (walletsResult.status === "fulfilled") {
       setWallets(walletsResult.value);
@@ -318,6 +398,75 @@ export default function AcoesPage() {
       const apiError = err as ApiError;
       setSelectedPosition(null);
       setError(apiError.message);
+    }
+  }
+
+  async function handleBatchFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      setBatchFileName("");
+      setBatchFileSummary(null);
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    try {
+      const parsed = await parseB3NegociacaoFile(file);
+      setBatchFileName(file.name);
+      setBatchFileSummary(parsed);
+      setBatchMode(parsed.totalCompras >= parsed.totalVendas ? "compra" : "venda");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Falha ao ler o arquivo da B3.";
+      setBatchFileName("");
+      setBatchFileSummary(null);
+      setError(message);
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  async function handleBatchFileImport() {
+    if (!batchFileSummary) {
+      setError("Selecione um arquivo da B3 antes de importar.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setNotice(null);
+    setError(null);
+
+    try {
+      validateImportedOperationBalances(
+        batchFileSummary.operations,
+        loosePositions?.items ?? [],
+        corporateEvents?.items ?? [],
+      );
+      const groups = chunkImportedOperations(batchFileSummary.operations);
+      let totalCompras = 0;
+      let totalVendas = 0;
+
+      for (const group of groups) {
+        if (group.mode === "compra") {
+          const result = await registrarComprasLote(group.payloads);
+          totalCompras += result.totalCompras;
+          continue;
+        }
+
+        const result = await registrarVendasLote(group.payloads);
+        totalVendas += result.totalVendas;
+      }
+
+      setBatchFileName("");
+      setBatchFileSummary(null);
+      setNotice(`${totalCompras} compras e ${totalVendas} vendas importadas do arquivo da B3.`);
+      await loadData();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : (err as ApiError).message;
+      setError(message);
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -452,6 +601,45 @@ export default function AcoesPage() {
                 {isSubmitting ? "Registrando lote..." : "Registrar lote"}
               </button>
             </form>
+
+            <div className="mt-6 border-t border-slate-200 pt-5">
+              <h3 className="text-base font-semibold text-slate-900">Arquivo da B3</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                Leia o XLSX de negociacao da B3 e registre compras e vendas na ordem cronologica.
+              </p>
+              <div className="mt-4 space-y-4">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-sm font-semibold text-slate-800">Arquivo XLSX</span>
+                  <input
+                    type="file"
+                    accept=".xlsx"
+                    onChange={(event) => void handleBatchFileChange(event)}
+                    className="rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200"
+                  />
+                </label>
+
+                {batchFileSummary ? (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm">
+                    <p className="font-semibold text-slate-900">{batchFileName}</p>
+                    <p className="mt-1 text-slate-600">
+                      {batchFileSummary.totalRows} operacoes encontradas: {batchFileSummary.totalCompras} compras e{" "}
+                      {batchFileSummary.totalVendas} vendas.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">Selecione um arquivo como `negociacao-2026-04-27-18-00-18.xlsx`.</p>
+                )}
+
+                <button
+                  type="button"
+                  disabled={isSubmitting || !batchFileSummary}
+                  onClick={() => void handleBatchFileImport()}
+                  className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-70"
+                >
+                  {isSubmitting ? "Importando arquivo..." : "Importar arquivo da B3"}
+                </button>
+              </div>
+            </div>
           </article>
         </div>
 

@@ -82,12 +82,19 @@ Pendente tecnico:
 
 - Adicionar testes automatizados de frontend.
 - Revisar fallback de `API_URL` para evitar loop quando backend e frontend usarem a mesma porta.
+- Adaptar telas para paginação de histórico de operações quando o backend expuser `limit`/`offset` ou cursor.
+- Ajustar carregamento para consumir endpoint consolidado de resumo quando o backend centralizar posições/performance, reduzindo chamadas paralelas duplicadas.
 
 Pendente funcional:
 
 - Ajustar carteiras conforme o backend evoluir: adicionar/remover acoes, movimentar entre carteiras e performance.
 - Adicionar visualizacao detalhada de resultado por venda, caso necessario para o usuario final.
 - Adicionar testes automatizados para autenticacao e acoes.
+
+Pendente de performance:
+
+- Exibir histórico de operações paginado, com navegação de página e estado de carregamento por página.
+- Separar carregamento inicial crítico de dados secundários, priorizando resumo/posições e carregando histórico/resultados depois quando necessário.
 
 ## Endpoints que o Frontend Deve Priorizar
 Disponiveis no backend atual:

@@ -216,6 +216,24 @@ export type ListarEventosCorporativosResponse = {
   totalEventos: number;
 };
 
+export type ProcessarEventosCorporativosResponse = {
+  totalEventos: number;
+  eventosProcessados: number;
+  operacoesAtualizadas: number;
+  tickersAtualizados: number;
+  tickersRemovidos: number;
+  tickersCriados: number;
+  items: {
+    eventoId: string;
+    ticker: string;
+    tickerDestino: string;
+    operacoesAtualizadas: number;
+    tickerOrigemAtualizado: boolean;
+    tickerOrigemRemovido: boolean;
+    tickerDestinoCriado: boolean;
+  }[];
+};
+
 export type Carteira = {
   id: string;
   userId: string;
@@ -423,6 +441,13 @@ export function createEventoCorporativo(payload: {
   return apiRequest<EventoCorporativo>("/admin/eventos-corporativos", {
     method: "POST",
     body: payload,
+    withAuth: true,
+  });
+}
+
+export function processarEventosCorporativos() {
+  return apiRequest<ProcessarEventosCorporativosResponse>("/admin/eventos-corporativos/processar", {
+    method: "POST",
     withAuth: true,
   });
 }

@@ -8,6 +8,7 @@ import {
   createEventoCorporativo,
   getMe,
   listEventosCorporativos,
+  processarEventosCorporativos,
 } from "@/lib/api";
 import type { ApiError, EventoCorporativo } from "@/lib/api";
 import {
@@ -136,6 +137,7 @@ export default function AdminPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isParsingImport, setIsParsingImport] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isProcessingEvents, setIsProcessingEvents] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -295,6 +297,25 @@ export default function AdminPage() {
     setNotice(`${importedCount} eventos importados${errorCount ? `, ${errorCount} com erro` : ""}.`);
   }
 
+  async function handleProcessEvents() {
+    setIsProcessingEvents(true);
+    setNotice(null);
+    setError(null);
+
+    try {
+      const result = await processarEventosCorporativos();
+      setNotice(
+        `Processamento concluido: ${result.operacoesAtualizadas} operacoes atualizadas, ${result.tickersAtualizados} tickers atualizados, ${result.tickersRemovidos} tickers removidos e ${result.tickersCriados} tickers criados.`,
+      );
+      await loadAdminData();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : (err as ApiError).message;
+      setError(message);
+    } finally {
+      setIsProcessingEvents(false);
+    }
+  }
+
   async function handleCreateAdmin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSubmitting(true);
@@ -409,6 +430,20 @@ export default function AdminPage() {
                     </table>
                   </div>
                 ) : null}
+              </div>
+            </article>
+
+            <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-semibold text-slate-900">Processamento</h2>
+              <div className="mt-4 space-y-3">
+                <button
+                  type="button"
+                  disabled={isProcessingEvents || isImporting || isParsingImport}
+                  onClick={() => void handleProcessEvents()}
+                  className="w-full rounded-md bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-70"
+                >
+                  {isProcessingEvents ? "Aplicando..." : "Aplicar eventos na base"}
+                </button>
               </div>
             </article>
 

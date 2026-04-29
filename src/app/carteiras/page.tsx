@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
-import { AppShell } from "@/components/layout/AppShell";
+import { AppShell, LoadingPanel } from "@/components/layout/AppShell";
 import type { ApiError, Carteira, CarteiraDetalhe, ListarAcoesResponse, ListarCarteirasResponse } from "@/lib/api";
 import {
   adicionarAcaoAvulsaEmCarteira,
@@ -33,8 +33,16 @@ const currencyFormatter = new Intl.NumberFormat("pt-BR", {
   currency: "BRL",
 });
 
+const quantityFormatter = new Intl.NumberFormat("pt-BR", {
+  maximumFractionDigits: 8,
+});
+
 function formatCurrency(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? currencyFormatter.format(value) : "Sem cotacao";
+}
+
+function formatQuantity(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? quantityFormatter.format(value) : "-";
 }
 
 function formatCurrentValueWithQuote(total: number | null | undefined, quote: number | null | undefined) {
@@ -264,7 +272,7 @@ export default function CarteirasPage() {
       const payload = toMovementPayload(addForm);
       if (payload.quantidade > quantidadeAvulsaSelecionada) {
         setError(
-          `Quantidade indisponivel. Restam ${quantidadeAvulsaSelecionada} acoes avulsas de ${payload.ticker}.`,
+          `Quantidade indisponivel. Restam ${formatQuantity(quantidadeAvulsaSelecionada)} acoes avulsas de ${payload.ticker}.`,
         );
         return;
       }
@@ -295,7 +303,7 @@ export default function CarteirasPage() {
       const payload = toMovementPayload(removeForm);
       if (payload.quantidade > quantidadeCarteiraSelecionada) {
         setError(
-          `Quantidade indisponivel. A carteira possui ${quantidadeCarteiraSelecionada} acoes de ${payload.ticker}.`,
+          `Quantidade indisponivel. A carteira possui ${formatQuantity(quantidadeCarteiraSelecionada)} acoes de ${payload.ticker}.`,
         );
         return;
       }
@@ -333,7 +341,7 @@ export default function CarteirasPage() {
       const payload = toMovementPayload(transferForm);
       if (payload.quantidade > quantidadeTransferenciaSelecionada) {
         setError(
-          `Quantidade indisponivel. A carteira de origem possui ${quantidadeTransferenciaSelecionada} acoes de ${payload.ticker}.`,
+          `Quantidade indisponivel. A carteira de origem possui ${formatQuantity(quantidadeTransferenciaSelecionada)} acoes de ${payload.ticker}.`,
         );
         return;
       }
@@ -357,6 +365,7 @@ export default function CarteirasPage() {
     <AppShell title="Carteiras" subtitle="Crie, consulte e organize agrupamentos de ativos conforme o backend evolui.">
       {notice ? <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{notice}</p> : null}
       {error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+      {isLoading ? <LoadingPanel message="Carregando carteiras e posicoes..." /> : null}
 
       <section className="grid gap-4 md:grid-cols-4">
         <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -480,8 +489,9 @@ export default function CarteirasPage() {
                         <th className="px-4 py-3">Ticker</th>
                         <th className="px-4 py-3">Qtd.</th>
                         <th className="px-4 py-3">Preco medio</th>
+                        <th className="px-4 py-3">Cotacao</th>
                         <th className="px-4 py-3">Investido</th>
-                        <th className="px-4 py-3">Atual</th>
+                        <th className="px-4 py-3">Valor atual</th>
                         <th className="px-4 py-3">Variacao</th>
                       </tr>
                     </thead>
@@ -492,8 +502,9 @@ export default function CarteirasPage() {
                         return (
                           <tr key={position.ticker}>
                             <td className="px-4 py-3 font-semibold">{position.ticker}</td>
-                            <td className="px-4 py-3">{position.quantidade}</td>
+                            <td className="px-4 py-3">{formatQuantity(position.quantidade)}</td>
                             <td className="px-4 py-3">{formatCurrency(position.precoMedio)}</td>
+                            <td className="px-4 py-3 font-semibold">{formatCurrency(position.cotacaoAtual)}</td>
                             <td className="px-4 py-3">{formatCurrency(position.valorInvestido)}</td>
                             <td className="px-4 py-3">
                               <div className="flex flex-col">
@@ -538,7 +549,7 @@ export default function CarteirasPage() {
                       <option value="">Selecione</option>
                       {loosePositions?.items.map((position) => (
                         <option key={position.ticker} value={position.ticker}>
-                          {position.ticker} - {position.quantidade}
+                          {position.ticker} - {formatQuantity(position.quantidade)}
                         </option>
                       ))}
                     </select>
@@ -553,7 +564,7 @@ export default function CarteirasPage() {
                       onChange={(event) => setAddForm((current) => ({ ...current, quantidade: event.target.value }))}
                       className="rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
                     />
-                    <span className="text-xs text-slate-500">Disponivel: {quantidadeAvulsaSelecionada}</span>
+                    <span className="text-xs text-slate-500">Disponivel: {formatQuantity(quantidadeAvulsaSelecionada)}</span>
                   </label>
                   <label className="flex flex-col gap-1.5">
                     <span className="text-sm font-semibold text-slate-800">Data</span>
@@ -587,7 +598,7 @@ export default function CarteirasPage() {
                       <option value="">Selecione</option>
                       {selectedWallet.posicoes.map((position) => (
                         <option key={position.ticker} value={position.ticker}>
-                          {position.ticker} - {position.quantidade}
+                          {position.ticker} - {formatQuantity(position.quantidade)}
                         </option>
                       ))}
                     </select>
@@ -602,7 +613,7 @@ export default function CarteirasPage() {
                       onChange={(event) => setRemoveForm((current) => ({ ...current, quantidade: event.target.value }))}
                       className="rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
                     />
-                    <span className="text-xs text-slate-500">Disponivel: {quantidadeCarteiraSelecionada}</span>
+                    <span className="text-xs text-slate-500">Disponivel: {formatQuantity(quantidadeCarteiraSelecionada)}</span>
                   </label>
                   <label className="flex flex-col gap-1.5">
                     <span className="text-sm font-semibold text-slate-800">Data</span>
@@ -636,7 +647,7 @@ export default function CarteirasPage() {
                       <option value="">Selecione</option>
                       {selectedWallet.posicoes.map((position) => (
                         <option key={position.ticker} value={position.ticker}>
-                          {position.ticker} - {position.quantidade}
+                          {position.ticker} - {formatQuantity(position.quantidade)}
                         </option>
                       ))}
                     </select>
@@ -669,7 +680,7 @@ export default function CarteirasPage() {
                         onChange={(event) => setTransferForm((current) => ({ ...current, quantidade: event.target.value }))}
                         className="rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
                       />
-                      <span className="text-xs text-slate-500">Disponivel: {quantidadeTransferenciaSelecionada}</span>
+                      <span className="text-xs text-slate-500">Disponivel: {formatQuantity(quantidadeTransferenciaSelecionada)}</span>
                     </label>
                     <label className="flex flex-col gap-1.5">
                       <span className="text-sm font-semibold text-slate-800">Data</span>

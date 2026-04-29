@@ -201,7 +201,8 @@ export type ListarTickersResponse = {
 export type EventoCorporativo = {
   id: string;
   ticker: string;
-  tipo: "DESDOBRAMENTO" | "GRUPAMENTO";
+  tickerDestino: string | null;
+  tipo: "DESDOBRAMENTO" | "GRUPAMENTO" | "ALTERACAO_TICKER";
   dataEvento: string;
   fatorQuantidade: number;
   fatorPreco: number;
@@ -412,7 +413,8 @@ export function listEventosCorporativos() {
 
 export function createEventoCorporativo(payload: {
   ticker: string;
-  tipo: "DESDOBRAMENTO" | "GRUPAMENTO";
+  tickerDestino?: string;
+  tipo: "DESDOBRAMENTO" | "GRUPAMENTO" | "ALTERACAO_TICKER";
   dataEvento: string;
   fatorQuantidade: number;
   fatorPreco: number;

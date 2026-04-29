@@ -2,7 +2,7 @@
 
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AppShell } from "@/components/layout/AppShell";
+import { AppShell, LoadingPanel, ProgressLog } from "@/components/layout/AppShell";
 import {
   createAdminUser,
   createEventoCorporativo,
@@ -18,7 +18,8 @@ import {
 
 type EventForm = {
   ticker: string;
-  tipo: "DESDOBRAMENTO" | "GRUPAMENTO";
+  tickerDestino: string;
+  tipo: "DESDOBRAMENTO" | "GRUPAMENTO" | "ALTERACAO_TICKER";
   dataEvento: string;
   fatorQuantidade: string;
   fatorPreco: string;
@@ -27,6 +28,7 @@ type EventForm = {
 
 const defaultEventForm: EventForm = {
   ticker: "MGLU3",
+  tickerDestino: "",
   tipo: "DESDOBRAMENTO",
   dataEvento: "2020-10-15",
   fatorQuantidade: "4",
@@ -50,8 +52,19 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(date);
 }
 
+function eventTypeLabel(tipo: EventoCorporativo["tipo"]) {
+  const labels: Record<EventoCorporativo["tipo"], string> = {
+    DESDOBRAMENTO: "Desdobramento",
+    GRUPAMENTO: "Grupamento",
+    ALTERACAO_TICKER: "Alteracao de ticker",
+  };
+
+  return labels[tipo];
+}
+
 function toEventPayload(form: EventForm) {
   const ticker = form.ticker.trim().toUpperCase();
+  const tickerDestino = form.tickerDestino.trim().toUpperCase();
   const fatorQuantidade = Number(form.fatorQuantidade);
   const fatorPreco = Number(form.fatorPreco);
 
@@ -60,6 +73,14 @@ function toEventPayload(form: EventForm) {
   }
   if (!form.dataEvento) {
     throw new Error("Informe a data do evento.");
+  }
+  if (form.tipo === "ALTERACAO_TICKER") {
+    if (!tickerDestino) {
+      throw new Error("Informe o ticker destino.");
+    }
+    if (tickerDestino === ticker) {
+      throw new Error("Ticker destino deve ser diferente do ticker de origem.");
+    }
   }
   if (!Number.isFinite(fatorQuantidade) || fatorQuantidade <= 0) {
     throw new Error("Fator de quantidade deve ser maior que zero.");
@@ -70,6 +91,7 @@ function toEventPayload(form: EventForm) {
 
   return {
     ticker,
+    ...(form.tipo === "ALTERACAO_TICKER" ? { tickerDestino } : {}),
     tipo: form.tipo,
     dataEvento: new Date(`${form.dataEvento}T00:00:00.000Z`).toISOString(),
     fatorQuantidade,
@@ -107,6 +129,7 @@ export default function AdminPage() {
   const [importFileName, setImportFileName] = useState("");
   const [importRows, setImportRows] = useState<ImportPreviewItem[]>([]);
   const [ignoredImportRows, setIgnoredImportRows] = useState(0);
+  const [importLog, setImportLog] = useState<string[]>([]);
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -172,6 +195,7 @@ export default function AdminPage() {
     setError(null);
     setImportRows([]);
     setIgnoredImportRows(0);
+    setImportLog(file ? [`Lendo ${file.name}...`] : []);
     setImportFileName(file?.name ?? "");
 
     if (!file) {
@@ -197,8 +221,13 @@ export default function AdminPage() {
         }),
       );
       setNotice(`${result.items.length} eventos lidos de ${file.name}.`);
+      setImportLog([
+        `Arquivo ${file.name} lido.`,
+        `${result.items.length} eventos encontrados; ${result.ignoredRows} linhas ignoradas.`,
+      ]);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Nao foi possivel ler o arquivo.";
+      setImportLog([`Falha ao ler ${file.name}.`]);
       setError(message);
     } finally {
       setIsParsingImport(false);
@@ -215,14 +244,19 @@ export default function AdminPage() {
     setIsImporting(true);
     setNotice(null);
     setError(null);
+    setImportLog((current) => [...current, `Iniciando importacao de ${pendingRows.length} eventos novos...`]);
 
     let importedCount = 0;
     let errorCount = 0;
     const nextRows = [...importRows];
 
-    for (const row of pendingRows) {
+    for (const [index, row] of pendingRows.entries()) {
       const rowIndex = nextRows.findIndex((item) => item.sourceRow === row.sourceRow);
       try {
+        setImportLog((current) => [
+          ...current,
+          `Enviando evento ${index + 1}/${pendingRows.length}: ${row.payload.ticker}${row.payload.tickerDestino ? ` -> ${row.payload.tickerDestino}` : ""}.`,
+        ]);
         await createEventoCorporativo(row.payload);
         importedCount += 1;
         nextRows[rowIndex] = {
@@ -254,6 +288,10 @@ export default function AdminPage() {
 
     await loadAdminData();
     setIsImporting(false);
+    setImportLog((current) => [
+      ...current,
+      `Concluido: ${importedCount} eventos importados${errorCount ? `, ${errorCount} com erro` : ""}.`,
+    ]);
     setNotice(`${importedCount} eventos importados${errorCount ? `, ${errorCount} com erro` : ""}.`);
   }
 
@@ -281,7 +319,7 @@ export default function AdminPage() {
       {notice ? <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{notice}</p> : null}
       {error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
 
-      {isLoading ? <p className="text-sm text-slate-600">Carregando administracao...</p> : null}
+      {isLoading ? <LoadingPanel message="Carregando eventos corporativos e permissoes..." /> : null}
 
       {!isLoading ? (
         <section className="grid gap-5 xl:grid-cols-[420px_1fr]">
@@ -319,6 +357,8 @@ export default function AdminPage() {
                   </div>
                 ) : null}
 
+                <ProgressLog items={importLog} />
+
                 <button
                   type="button"
                   disabled={
@@ -350,7 +390,7 @@ export default function AdminPage() {
                             </td>
                             <td className="px-3 py-2">{row.payload.ticker}</td>
                             <td className="px-3 py-2">
-                              {row.payload.tipo === "DESDOBRAMENTO" ? "Desdobramento" : "Grupamento"}
+                              {eventTypeLabel(row.payload.tipo)}
                             </td>
                             <td className="px-3 py-2">{row.payload.fatorQuantidade}</td>
                             <td className="px-3 py-2">
@@ -392,14 +432,32 @@ export default function AdminPage() {
                       setEventForm((current) => ({
                         ...current,
                         tipo: event.target.value as EventForm["tipo"],
+                        ...(event.target.value === "ALTERACAO_TICKER"
+                          ? { fatorQuantidade: "1", fatorPreco: "1" }
+                          : {}),
                       }))
                     }
                     className="rounded-md border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
                   >
                     <option value="DESDOBRAMENTO">Desdobramento</option>
                     <option value="GRUPAMENTO">Grupamento</option>
+                    <option value="ALTERACAO_TICKER">Alteracao de ticker</option>
                   </select>
                 </label>
+
+                {eventForm.tipo === "ALTERACAO_TICKER" ? (
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-sm font-semibold text-slate-800">Ticker destino</span>
+                    <input
+                      value={eventForm.tickerDestino}
+                      onChange={(event) =>
+                        setEventForm((current) => ({ ...current, tickerDestino: event.target.value }))
+                      }
+                      placeholder="VIIA3"
+                      className="rounded-md border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+                    />
+                  </label>
+                ) : null}
 
                 <label className="flex flex-col gap-1.5">
                   <span className="text-sm font-semibold text-slate-800">Data</span>
@@ -506,8 +564,10 @@ export default function AdminPage() {
                     {events.map((event) => (
                       <tr key={event.id}>
                         <td className="px-4 py-3 font-medium text-slate-900">{formatDate(event.dataEvento)}</td>
-                        <td className="px-4 py-3">{event.ticker}</td>
-                        <td className="px-4 py-3">{event.tipo === "DESDOBRAMENTO" ? "Desdobramento" : "Grupamento"}</td>
+                        <td className="px-4 py-3">
+                          {event.tickerDestino ? `${event.ticker} -> ${event.tickerDestino}` : event.ticker}
+                        </td>
+                        <td className="px-4 py-3">{eventTypeLabel(event.tipo)}</td>
                         <td className="px-4 py-3">{event.fatorQuantidade}</td>
                         <td className="px-4 py-3">{event.fatorPreco}</td>
                         <td className="px-4 py-3 text-slate-600">{event.observacao ?? "-"}</td>

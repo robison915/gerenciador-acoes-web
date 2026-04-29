@@ -47,3 +47,32 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
     </main>
   );
 }
+
+export function LoadingPanel({ message = "Carregando dados..." }: { message?: string }) {
+  return (
+    <div className="flex items-center gap-3 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+      <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-200 border-t-blue-700" />
+      <span className="font-medium">{message}</span>
+    </div>
+  );
+}
+
+export function ProgressLog({ items }: { items: string[] }) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+      <p className="font-semibold text-slate-900">Processamento</p>
+      <ul className="mt-2 space-y-1">
+        {items.slice(-8).map((item, index) => (
+          <li key={`${item}-${index}`} className="flex gap-2">
+            <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-blue-600" />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}

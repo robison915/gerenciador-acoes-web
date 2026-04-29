@@ -1,7 +1,7 @@
 "use client";
 
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "react";
-import { AppShell } from "@/components/layout/AppShell";
+import { AppShell, LoadingPanel, ProgressLog } from "@/components/layout/AppShell";
 import type {
   ApiError,
   EventoCorporativo,
@@ -59,12 +59,20 @@ const numberFormatter = new Intl.NumberFormat("pt-BR", {
   maximumFractionDigits: 2,
 });
 
+const quantityFormatter = new Intl.NumberFormat("pt-BR", {
+  maximumFractionDigits: 8,
+});
+
 function formatCurrency(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? currencyFormatter.format(value) : "Sem cotacao";
 }
 
 function formatNumber(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? numberFormatter.format(value) : "-";
+}
+
+function formatQuantity(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? quantityFormatter.format(value) : "-";
 }
 
 function formatPercent(value: number | null | undefined) {
@@ -158,19 +166,74 @@ function chunkImportedOperations(operations: B3BatchOperation[], maxSize = 100) 
   return groups;
 }
 
+function buildTickerChangeMap(corporateEvents: EventoCorporativo[]) {
+  const changes = corporateEvents
+    .filter((event) => event.tipo === "ALTERACAO_TICKER" && event.tickerDestino)
+    .sort((left, right) => new Date(left.dataEvento).getTime() - new Date(right.dataEvento).getTime());
+  const tickerChangeMap = new Map<string, string>();
+
+  for (const event of changes) {
+    tickerChangeMap.set(event.ticker, event.tickerDestino ?? event.ticker);
+  }
+
+  return tickerChangeMap;
+}
+
+function getCanonicalTicker(ticker: string, tickerChangeMap: Map<string, string>) {
+  let current = ticker.trim().toUpperCase();
+  const visited = new Set<string>();
+
+  while (tickerChangeMap.has(current) && !visited.has(current)) {
+    visited.add(current);
+    current = tickerChangeMap.get(current) ?? current;
+  }
+
+  return current;
+}
+
+function normalizeImportedOperationTickers(
+  operations: B3BatchOperation[],
+  corporateEvents: EventoCorporativo[],
+): B3BatchOperation[] {
+  const tickerChangeMap = buildTickerChangeMap(corporateEvents);
+
+  if (tickerChangeMap.size === 0) {
+    return operations;
+  }
+
+  return operations.map((operation) => ({
+    ...operation,
+    payload: {
+      ...operation.payload,
+      ticker: getCanonicalTicker(operation.payload.ticker, tickerChangeMap),
+    },
+  }));
+}
+
 function validateImportedOperationBalances(
   operations: B3BatchOperation[],
   currentLoosePositions: PosicaoAcao[],
   corporateEvents: EventoCorporativo[],
 ) {
-  const balances = new Map(currentLoosePositions.map((position) => [position.ticker, position.quantidade]));
+  const tickerChangeMap = buildTickerChangeMap(corporateEvents);
+  const balances = new Map<string, number>();
   const eventsByTicker = new Map<string, EventoCorporativo[]>();
   const nextEventIndexByTicker = new Map<string, number>();
 
+  for (const position of currentLoosePositions) {
+    const ticker = getCanonicalTicker(position.ticker, tickerChangeMap);
+    balances.set(ticker, (balances.get(ticker) ?? 0) + position.quantidade);
+  }
+
   for (const event of corporateEvents) {
-    const events = eventsByTicker.get(event.ticker) ?? [];
+    if (event.tipo === "ALTERACAO_TICKER") {
+      continue;
+    }
+
+    const eventTicker = getCanonicalTicker(event.ticker, tickerChangeMap);
+    const events = eventsByTicker.get(eventTicker) ?? [];
     events.push(event);
-    eventsByTicker.set(event.ticker, events);
+    eventsByTicker.set(eventTicker, events);
   }
 
   for (const events of eventsByTicker.values()) {
@@ -178,7 +241,7 @@ function validateImportedOperationBalances(
   }
 
   for (const operation of operations) {
-    const ticker = operation.payload.ticker;
+    const ticker = getCanonicalTicker(operation.payload.ticker, tickerChangeMap);
     const events = eventsByTicker.get(ticker) ?? [];
     let nextEventIndex = nextEventIndexByTicker.get(ticker) ?? 0;
     const operationTime = new Date(operation.payload.dataOperacao ?? 0).getTime();
@@ -265,6 +328,8 @@ export default function AcoesPage() {
   const [batchFileName, setBatchFileName] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isParsingBatchFile, setIsParsingBatchFile] = useState(false);
+  const [batchImportLog, setBatchImportLog] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -411,18 +476,26 @@ export default function AcoesPage() {
 
     setError(null);
     setNotice(null);
+    setBatchImportLog([`Lendo ${file.name}...`]);
+    setIsParsingBatchFile(true);
 
     try {
       const parsed = await parseB3NegociacaoFile(file);
       setBatchFileName(file.name);
       setBatchFileSummary(parsed);
       setBatchMode(parsed.totalCompras >= parsed.totalVendas ? "compra" : "venda");
+      setBatchImportLog([
+        `Arquivo ${file.name} lido.`,
+        `${parsed.totalRows} operacoes encontradas: ${parsed.totalCompras} compras e ${parsed.totalVendas} vendas.`,
+      ]);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Falha ao ler o arquivo da B3.";
       setBatchFileName("");
       setBatchFileSummary(null);
+      setBatchImportLog([`Falha ao ler ${file.name}.`]);
       setError(message);
     } finally {
+      setIsParsingBatchFile(false);
       event.target.value = "";
     }
   }
@@ -436,18 +509,29 @@ export default function AcoesPage() {
     setIsSubmitting(true);
     setNotice(null);
     setError(null);
+    setBatchImportLog([`Iniciando importacao de ${batchFileName || "arquivo da B3"}...`]);
 
     try {
-      validateImportedOperationBalances(
+      setBatchImportLog((current) => [...current, "Normalizando tickers por eventos corporativos cadastrados..."]);
+      const normalizedOperations = normalizeImportedOperationTickers(
         batchFileSummary.operations,
+        corporateEvents?.items ?? [],
+      );
+      setBatchImportLog((current) => [...current, "Validando saldo cronologico das operacoes..."]);
+      validateImportedOperationBalances(
+        normalizedOperations,
         loosePositions?.items ?? [],
         corporateEvents?.items ?? [],
       );
-      const groups = chunkImportedOperations(batchFileSummary.operations);
+      const groups = chunkImportedOperations(normalizedOperations);
       let totalCompras = 0;
       let totalVendas = 0;
 
-      for (const group of groups) {
+      for (const [index, group] of groups.entries()) {
+        setBatchImportLog((current) => [
+          ...current,
+          `Enviando lote ${index + 1}/${groups.length}: ${group.payloads.length} ${group.mode === "compra" ? "compras" : "vendas"}...`,
+        ]);
         if (group.mode === "compra") {
           const result = await registrarComprasLote(group.payloads);
           totalCompras += result.totalCompras;
@@ -460,6 +544,11 @@ export default function AcoesPage() {
 
       setBatchFileName("");
       setBatchFileSummary(null);
+      setBatchImportLog((current) => [
+        ...current,
+        `Concluido: ${totalCompras} compras e ${totalVendas} vendas importadas.`,
+        "Atualizando dados da tela...",
+      ]);
       setNotice(`${totalCompras} compras e ${totalVendas} vendas importadas do arquivo da B3.`);
       await loadData();
     } catch (err) {
@@ -474,6 +563,7 @@ export default function AcoesPage() {
     <AppShell title="Acoes" subtitle="Registre operacoes, acompanhe posicoes e veja o resultado dos ativos.">
       {notice ? <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{notice}</p> : null}
       {error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+      {isLoading ? <LoadingPanel message="Carregando posicoes, operacoes e cotacoes..." /> : null}
 
       <section className="grid gap-4 md:grid-cols-4">
         <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -613,8 +703,9 @@ export default function AcoesPage() {
                   <input
                     type="file"
                     accept=".xlsx"
+                    disabled={isSubmitting || isParsingBatchFile}
                     onChange={(event) => void handleBatchFileChange(event)}
-                    className="rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200"
+                    className="rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 disabled:opacity-70"
                   />
                 </label>
 
@@ -630,13 +721,15 @@ export default function AcoesPage() {
                   <p className="text-sm text-slate-500">Selecione um arquivo como `negociacao-2026-04-27-18-00-18.xlsx`.</p>
                 )}
 
+                <ProgressLog items={batchImportLog} />
+
                 <button
                   type="button"
-                  disabled={isSubmitting || !batchFileSummary}
+                  disabled={isSubmitting || isParsingBatchFile || !batchFileSummary}
                   onClick={() => void handleBatchFileImport()}
                   className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-70"
                 >
-                  {isSubmitting ? "Importando arquivo..." : "Importar arquivo da B3"}
+                  {isSubmitting ? "Importando arquivo..." : isParsingBatchFile ? "Lendo arquivo..." : "Importar arquivo da B3"}
                 </button>
               </div>
             </div>
@@ -665,8 +758,9 @@ export default function AcoesPage() {
                     <th className="px-5 py-3">Ticker</th>
                     <th className="px-5 py-3">Qtd.</th>
                     <th className="px-5 py-3">Preco medio</th>
+                    <th className="px-5 py-3">Cotacao</th>
                     <th className="px-5 py-3">Investido</th>
-                    <th className="px-5 py-3">Atual</th>
+                    <th className="px-5 py-3">Valor atual</th>
                     <th className="px-5 py-3">Variacao</th>
                   </tr>
                 </thead>
@@ -674,8 +768,9 @@ export default function AcoesPage() {
                   {positions?.items.map((item) => (
                     <tr key={item.ticker}>
                       <td className="px-5 py-3 font-semibold">{item.ticker}</td>
-                      <td className="px-5 py-3">{item.quantidade}</td>
+                      <td className="px-5 py-3">{formatQuantity(item.quantidade)}</td>
                       <td className="px-5 py-3">{formatCurrency(item.precoMedio)}</td>
+                      <td className="px-5 py-3 font-semibold">{formatCurrency(item.cotacaoAtual)}</td>
                       <td className="px-5 py-3">{formatCurrency(item.valorInvestido)}</td>
                       <td className="px-5 py-3">{formatCurrency(item.valorAtual)}</td>
                       <td className={`px-5 py-3 font-semibold ${metricTone(item.variacaoAbsoluta)}`}>
@@ -709,7 +804,7 @@ export default function AcoesPage() {
                 <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <p className="text-slate-500">Quantidade</p>
-                    <p className="font-semibold">{selectedPosition.quantidade}</p>
+                    <p className="font-semibold">{formatQuantity(selectedPosition.quantidade)}</p>
                   </div>
                   <div>
                     <p className="text-slate-500">Preco medio</p>
@@ -746,8 +841,8 @@ export default function AcoesPage() {
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-5 py-3">Ticker</th>
-                    <th className="px-5 py-3">Referencia</th>
-                    <th className="px-5 py-3">Atual</th>
+                    <th className="px-5 py-3">Cotacao ref.</th>
+                    <th className="px-5 py-3">Valor atual</th>
                     <th className="px-5 py-3">Resultado</th>
                   </tr>
                 </thead>
@@ -801,7 +896,7 @@ export default function AcoesPage() {
                       </span>
                     </td>
                     <td className="px-5 py-3 font-semibold">{item.ticker}</td>
-                    <td className="px-5 py-3">{item.quantidade}</td>
+                    <td className="px-5 py-3">{formatQuantity(item.quantidade)}</td>
                     <td className="px-5 py-3">{formatCurrency(item.valorUnitario)}</td>
                     <td className="px-5 py-3">{formatCurrency(item.valorTotal)}</td>
                   </tr>

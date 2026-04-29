@@ -3,7 +3,8 @@ import type { EventoCorporativo } from "@/lib/api";
 
 export type EventoCorporativoImportPayload = {
   ticker: string;
-  tipo: "DESDOBRAMENTO" | "GRUPAMENTO";
+  tickerDestino?: string;
+  tipo: "DESDOBRAMENTO" | "GRUPAMENTO" | "ALTERACAO_TICKER";
   dataEvento: string;
   fatorQuantidade: number;
   fatorPreco: number;
@@ -23,6 +24,8 @@ export type EventoCorporativoImportResult = {
 
 type EventoCorporativoWorksheetRow = {
   Ticker?: unknown;
+  "Ticker destino"?: unknown;
+  tickerDestino?: unknown;
   Tipo?: unknown;
   "Data evento"?: unknown;
   "Data evento usada"?: unknown;
@@ -36,8 +39,13 @@ type EventoCorporativoWorksheetRow = {
   Fonte?: unknown;
 };
 
-export function getEventoCorporativoKey(event: Pick<EventoCorporativo, "ticker" | "tipo" | "dataEvento">) {
-  return `${event.ticker.trim().toUpperCase()}|${event.tipo}|${event.dataEvento.slice(0, 10)}`;
+export function getEventoCorporativoKey(event: {
+  ticker: string;
+  tickerDestino?: string | null;
+  tipo: EventoCorporativo["tipo"];
+  dataEvento: string;
+}) {
+  return `${event.ticker.trim().toUpperCase()}|${event.tickerDestino?.trim().toUpperCase() ?? ""}|${event.tipo}|${event.dataEvento.slice(0, 10)}`;
 }
 
 function parseTipo(value: unknown, rowNumber: number): EventoCorporativoImportPayload["tipo"] | null {
@@ -53,6 +61,17 @@ function parseTipo(value: unknown, rowNumber: number): EventoCorporativoImportPa
 
   if (normalized === "GRUPAMENTO" || normalized === "INPLIT" || normalized === "SPLIT REVERSO") {
     return "GRUPAMENTO";
+  }
+
+  if (
+    normalized === "ALTERACAO_TICKER" ||
+    normalized === "ALTERACAO DE TICKER" ||
+    normalized === "MUDANCA_TICKER" ||
+    normalized === "MUDANCA DE TICKER" ||
+    normalized === "TROCA_TICKER" ||
+    normalized === "TROCA DE TICKER"
+  ) {
+    return "ALTERACAO_TICKER";
   }
 
   if (!normalized) {
@@ -151,12 +170,14 @@ export async function parseEventosCorporativosFile(file: File): Promise<EventoCo
 
     const dataEvento = row["Data evento"] || row["Data evento usada"] || row.Data;
     const observacao = String(row.Observacao || row.Observação || row.Fonte || "").trim();
+    const tickerDestino = String(row["Ticker destino"] || row.tickerDestino || "").trim().toUpperCase();
 
     return [
       {
         sourceRow: rowNumber,
         payload: {
           ticker: normalizeTicker(row.Ticker, rowNumber),
+          ...(tipo === "ALTERACAO_TICKER" ? { tickerDestino: normalizeTicker(tickerDestino, rowNumber) } : {}),
           tipo,
           dataEvento: parseDate(dataEvento, rowNumber),
           fatorQuantidade: parsePositiveNumber(

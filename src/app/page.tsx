@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { AppShell } from "@/components/layout/AppShell";
+import { AppShell, LoadingPanel } from "@/components/layout/AppShell";
 import type { ApiError, ListarAcoesResponse, PerformanceAcoesResponse } from "@/lib/api";
 import { getPerformanceAcoes, listAcoes } from "@/lib/api";
 
@@ -11,12 +11,20 @@ const currencyFormatter = new Intl.NumberFormat("pt-BR", {
   currency: "BRL",
 });
 
+const quantityFormatter = new Intl.NumberFormat("pt-BR", {
+  maximumFractionDigits: 8,
+});
+
 function formatCurrency(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? currencyFormatter.format(value) : "Sem cotacao";
 }
 
 function formatPercent(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(2)}%` : "-";
+}
+
+function formatQuantity(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? quantityFormatter.format(value) : "-";
 }
 
 export default function Home() {
@@ -65,6 +73,7 @@ export default function Home() {
   return (
     <AppShell title="Visao geral" subtitle="Resumo das suas posicoes e dos principais movimentos da carteira.">
       {error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+      {isLoading ? <LoadingPanel message="Carregando resumo da carteira..." /> : null}
 
       <section className="grid gap-4 md:grid-cols-4">
         <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -103,8 +112,9 @@ export default function Home() {
                 <tr>
                   <th className="px-5 py-3">Ticker</th>
                   <th className="px-5 py-3">Quantidade</th>
+                  <th className="px-5 py-3">Cotacao</th>
                   <th className="px-5 py-3">Investido</th>
-                  <th className="px-5 py-3">Atual</th>
+                  <th className="px-5 py-3">Valor atual</th>
                   <th className="px-5 py-3">Variacao</th>
                 </tr>
               </thead>
@@ -112,7 +122,8 @@ export default function Home() {
                 {topPositions.map((item) => (
                   <tr key={item.ticker}>
                     <td className="px-5 py-3 font-semibold">{item.ticker}</td>
-                    <td className="px-5 py-3">{item.quantidade}</td>
+                    <td className="px-5 py-3">{formatQuantity(item.quantidade)}</td>
+                    <td className="px-5 py-3 font-semibold">{formatCurrency(item.cotacaoAtual)}</td>
                     <td className="px-5 py-3">{formatCurrency(item.valorInvestido)}</td>
                     <td className="px-5 py-3">{formatCurrency(item.valorAtual)}</td>
                     <td className="px-5 py-3">{formatPercent(item.variacaoPercentual)}</td>
@@ -120,7 +131,7 @@ export default function Home() {
                 ))}
                 {!isLoading && topPositions.length === 0 ? (
                   <tr>
-                    <td className="px-5 py-8 text-center text-slate-500" colSpan={5}>
+                    <td className="px-5 py-8 text-center text-slate-500" colSpan={6}>
                       Nenhuma posicao registrada ainda.
                     </td>
                   </tr>
@@ -150,4 +161,3 @@ export default function Home() {
     </AppShell>
   );
 }
-

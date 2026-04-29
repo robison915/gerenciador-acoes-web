@@ -73,7 +73,8 @@ Implementado:
 - Painel operacional de acoes usando endpoints reais do backend.
 - Leitura de arquivo XLSX de negociacao da B3 na area de lote de acoes, convertendo compras e vendas para os endpoints existentes e considerando eventos corporativos cadastrados para validar saldo.
 - Tela operacional de carteiras usando endpoints reais do backend.
-- Tela administrativa para cadastrar eventos corporativos, importar eventos por XLSX e criar novos administradores.
+- Tela administrativa para cadastrar eventos corporativos, incluindo alteracao de ticker, importar eventos por XLSX e criar novos administradores.
+- Importacao de negociacoes da B3 normaliza tickers conforme eventos de alteracao cadastrados, permitindo que compras no ticker antigo sejam conciliadas com vendas no ticker novo.
 - Lint do frontend passando.
 - Build do frontend passando.
 

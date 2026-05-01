@@ -59,6 +59,7 @@ npm run check
 - `/auth/me`: dados da conta e logout.
 - `/acoes`: gerenciamento operacional de acoes com compras, vendas, lote, posicoes, performance, historico, resultado de vendas, tickers e acoes avulsas.
 - `/carteiras`: gerenciamento operacional de carteiras com criacao, listagem, detalhe e exclusao usando os endpoints atuais do backend.
+- `/carteiras/ajuste`: projecao de rebalanceamento de carteira com lista alvo de acoes, saldo livre, percentuais opcionais, compras/vendas projetadas e exclusao de projecoes.
 - `/admin/login`: entrada administrativa.
 - `/admin`: administracao de eventos corporativos, importacao de eventos por XLSX e criacao de administradores.
 
@@ -73,9 +74,11 @@ Implementado:
 - Painel operacional de acoes usando endpoints reais do backend.
 - Leitura de arquivo XLSX de negociacao da B3 na area de lote de acoes, convertendo compras e vendas para os endpoints existentes e considerando eventos corporativos cadastrados para validar saldo.
 - Tela operacional de carteiras usando endpoints reais do backend.
+- Tela de ajuste de carteira para salvar projecoes de rebalanceamento, usando pesos iguais por padrao quando percentuais nao forem informados e exibindo vendas somente para ativos removidos da composicao alvo.
 - Tela administrativa para cadastrar eventos corporativos, incluindo alteracao de ticker, importar eventos por XLSX e criar novos administradores.
 - Tela administrativa permite aplicar eventos corporativos cadastrados na base existente, incluindo alteracoes de ticker ja importadas.
 - Importacao de negociacoes da B3 normaliza tickers conforme eventos de alteracao cadastrados, permitindo que compras no ticker antigo sejam conciliadas com vendas no ticker novo.
+- Importacao de negociacoes da B3 consulta as projecoes salvas de carteiras e vincula automaticamente operacoes aos tickers da composicao alvo ou da lista de vendas projetadas.
 - Lint do frontend passando.
 - Build do frontend passando.
 
@@ -124,13 +127,14 @@ Disponiveis no backend atual:
 - `GET /carteiras`
 - `GET /carteiras/:carteiraId`
 - `DELETE /carteiras/:carteiraId`
+- `POST /carteiras/:carteiraId/projecoes`
+- `GET /carteiras/:carteiraId/projecoes`
+- `DELETE /carteiras/:carteiraId/projecoes/:projecaoId`
 
 Previstos, mas dependentes do backend:
 
 - CRUD completo de carteiras.
-- Acoes avulsas.
-- Movimentacao entre carteiras.
-- Importacao B3.
+- Aprimorar distribuicao automatica da importacao B3 quando houver o mesmo ticker em projecoes ativas de mais de uma carteira.
 - Administracao de eventos corporativos.
 
 ## Criterios de Done

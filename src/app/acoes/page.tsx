@@ -4,6 +4,7 @@ import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "
 import { AppShell, LoadingPanel, ProgressLog } from "@/components/layout/AppShell";
 import type {
   ApiError,
+  CarteiraProjecao,
   EventoCorporativo,
   ListarCarteirasResponse,
   ListarAcoesResponse,
@@ -22,6 +23,7 @@ import {
   listAcoesAvulsas,
   listCarteiras,
   listEventosCorporativos,
+  listarProjecoesCarteira,
   listOperacoesAcoes,
   listResultadoVendas,
   listTickers,
@@ -241,6 +243,10 @@ function validateImportedOperationBalances(
   }
 
   for (const operation of operations) {
+    if (operation.payload.carteiraId) {
+      continue;
+    }
+
     const ticker = getCanonicalTicker(operation.payload.ticker, tickerChangeMap);
     const events = eventsByTicker.get(ticker) ?? [];
     let nextEventIndex = nextEventIndexByTicker.get(ticker) ?? 0;
@@ -268,6 +274,67 @@ function validateImportedOperationBalances(
 
     balances.set(ticker, currentBalance - operation.payload.quantidade);
   }
+}
+
+async function loadProjectionDistributionMap(wallets: ListarCarteirasResponse | null) {
+  const tickerToWalletId = new Map<string, string>();
+
+  if (!wallets?.items.length) {
+    return tickerToWalletId;
+  }
+
+  const results = await Promise.allSettled(
+    wallets.items.map(async (wallet) => {
+      const projections = await listarProjecoesCarteira(wallet.id);
+      return {
+        walletId: wallet.id,
+        projection: projections.items[0] as CarteiraProjecao | undefined,
+      };
+    }),
+  );
+
+  for (const result of results) {
+    if (result.status !== "fulfilled" || !result.value.projection) {
+      continue;
+    }
+
+    for (const asset of result.value.projection.ativos) {
+      if (!tickerToWalletId.has(asset.ticker)) {
+        tickerToWalletId.set(asset.ticker, result.value.walletId);
+      }
+    }
+    for (const sale of result.value.projection.vendas) {
+      if (!tickerToWalletId.has(sale.ticker)) {
+        tickerToWalletId.set(sale.ticker, result.value.walletId);
+      }
+    }
+  }
+
+  return tickerToWalletId;
+}
+
+function applyProjectionDistribution(
+  operations: B3BatchOperation[],
+  tickerToWalletId: Map<string, string>,
+) {
+  if (tickerToWalletId.size === 0) {
+    return operations;
+  }
+
+  return operations.map((operation) => {
+    const carteiraId = tickerToWalletId.get(operation.payload.ticker);
+    if (!carteiraId) {
+      return operation;
+    }
+
+    return {
+      ...operation,
+      payload: {
+        ...operation.payload,
+        carteiraId,
+      },
+    };
+  });
 }
 
 function metricTone(value: number | null | undefined) {
@@ -517,13 +584,28 @@ export default function AcoesPage() {
         batchFileSummary.operations,
         corporateEvents?.items ?? [],
       );
-      setBatchImportLog((current) => [...current, "Validando saldo cronologico das operacoes..."]);
+
+      setBatchImportLog((current) => [...current, "Consultando projecoes de ajuste salvas para carteiras..."]);
+      const projectionDistributionMap = await loadProjectionDistributionMap(wallets);
+      const distributedOperations = applyProjectionDistribution(normalizedOperations, projectionDistributionMap);
+      const distributedTotal = distributedOperations.filter((operation) => operation.payload.carteiraId).length;
+
+      if (distributedTotal > 0) {
+        setBatchImportLog((current) => [
+          ...current,
+          `${distributedTotal} operacoes foram vinculadas automaticamente por projecoes salvas.`,
+        ]);
+      } else {
+        setBatchImportLog((current) => [...current, "Nenhuma projecao salva aplicavel ao arquivo."]);
+      }
+
+      setBatchImportLog((current) => [...current, "Validando saldo cronologico das operacoes avulsas..."]);
       validateImportedOperationBalances(
-        normalizedOperations,
+        distributedOperations,
         loosePositions?.items ?? [],
         corporateEvents?.items ?? [],
       );
-      const groups = chunkImportedOperations(normalizedOperations);
+      const groups = chunkImportedOperations(distributedOperations);
       let totalCompras = 0;
       let totalVendas = 0;
 

@@ -297,6 +297,54 @@ export type MovimentarAcaoCarteiraResponse = {
   dataOperacao: string;
 };
 
+export type ProjetarAjusteCarteiraAtivoPayload = {
+  ticker: string;
+  percentual?: number;
+};
+
+export type ProjetarAjusteCarteiraPayload = {
+  saldoInformado: number;
+  ativos: ProjetarAjusteCarteiraAtivoPayload[];
+};
+
+export type CarteiraProjecaoAtivo = {
+  ticker: string;
+  percentual: number;
+  cotacaoAtual: number;
+  quantidadeAtual: number;
+  quantidadeProjetada: number;
+  valorProjetado: number;
+  novo: boolean;
+};
+
+export type CarteiraProjecaoOperacao = {
+  ticker: string;
+  quantidade: number;
+  valorUnitario: number;
+  valorTotal: number;
+};
+
+export type CarteiraProjecao = {
+  id: string;
+  userId: string;
+  carteiraId: string;
+  saldoInformado: number;
+  valorCarteiraAtual: number;
+  saldoTotalProjetado: number;
+  valorProjetadoAlocado: number;
+  saldoResidualEstimado: number;
+  ativos: CarteiraProjecaoAtivo[];
+  compras: CarteiraProjecaoOperacao[];
+  vendas: CarteiraProjecaoOperacao[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ListarCarteiraProjecoesResponse = {
+  items: CarteiraProjecao[];
+  totalProjecoes: number;
+};
+
 export function healthcheck() {
   return apiRequest<Record<string, unknown>>("/", { method: "GET" });
 }
@@ -501,6 +549,31 @@ export function movimentarAcaoEntreCarteiras(payload: MovimentarAcaoEntreCarteir
     body: payload,
     withAuth: true,
   });
+}
+
+export function projetarAjusteCarteira(carteiraId: string, payload: ProjetarAjusteCarteiraPayload) {
+  return apiRequest<CarteiraProjecao>(`/carteiras/${encodeURIComponent(carteiraId)}/projecoes`, {
+    method: "POST",
+    body: payload,
+    withAuth: true,
+  });
+}
+
+export function listarProjecoesCarteira(carteiraId: string) {
+  return apiRequest<ListarCarteiraProjecoesResponse>(`/carteiras/${encodeURIComponent(carteiraId)}/projecoes`, {
+    method: "GET",
+    withAuth: true,
+  });
+}
+
+export function excluirProjecaoCarteira(carteiraId: string, projecaoId: string) {
+  return apiRequest<{ ok: true }>(
+    `/carteiras/${encodeURIComponent(carteiraId)}/projecoes/${encodeURIComponent(projecaoId)}`,
+    {
+      method: "DELETE",
+      withAuth: true,
+    },
+  );
 }
 
 export function getAuthToken(): string | null {

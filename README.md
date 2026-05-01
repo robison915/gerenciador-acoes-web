@@ -94,6 +94,7 @@ Pendente funcional:
 - Ajustar carteiras conforme o backend evoluir: adicionar/remover acoes, movimentar entre carteiras e performance.
 - Adicionar visualizacao detalhada de resultado por venda, caso necessario para o usuario final.
 - Adicionar testes automatizados para autenticacao e acoes.
+- Migrar a importacao B3 da tela de acoes para o fluxo backend de revisao e distribuicao (`POST /acoes/importacoes/b3`, `GET /acoes/importacoes/b3/ultima`, `POST /acoes/importacoes/b3/ultima/distribuicao`).
 
 Pendente de performance:
 
@@ -119,6 +120,9 @@ Disponiveis no backend atual:
 - `GET /acoes/performance`
 - `GET /acoes/avulsas`
 - `GET /acoes/tickers`
+- `POST /acoes/importacoes/b3`
+- `GET /acoes/importacoes/b3/ultima`
+- `POST /acoes/importacoes/b3/ultima/distribuicao`
 - `GET /admin/eventos-corporativos`
 - `POST /admin/eventos-corporativos`
 - `POST /admin/eventos-corporativos/processar`
@@ -134,7 +138,7 @@ Disponiveis no backend atual:
 Previstos, mas dependentes do backend:
 
 - CRUD completo de carteiras.
-- Aprimorar distribuicao automatica da importacao B3 quando houver o mesmo ticker em projecoes ativas de mais de uma carteira.
+- Aprimorar UX da distribuicao automatica da importacao B3 quando houver o mesmo ticker em projecoes ativas de mais de uma carteira.
 - Administracao de eventos corporativos.
 
 ## Criterios de Done

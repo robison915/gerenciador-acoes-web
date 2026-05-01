@@ -29,7 +29,7 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
 
   const method = request.method.toUpperCase();
   const hasBody = method !== "GET" && method !== "HEAD";
-  const body = hasBody ? await request.text() : undefined;
+  const body = hasBody ? await request.arrayBuffer() : undefined;
 
   const upstreamResponse = await fetch(targetUrl, {
     method,

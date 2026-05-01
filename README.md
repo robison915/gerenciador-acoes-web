@@ -72,13 +72,12 @@ Implementado:
 - Shell visual para areas autenticadas.
 - Visao geral autenticada.
 - Painel operacional de acoes usando endpoints reais do backend.
-- Leitura de arquivo XLSX de negociacao da B3 na area de lote de acoes, convertendo compras e vendas para os endpoints existentes e considerando eventos corporativos cadastrados para validar saldo.
+- Importacao de arquivo XLSX de negociacao da B3 pela area de acoes usando o fluxo backend de revisao, distribuicao entre carteiras e persistencia.
 - Tela operacional de carteiras usando endpoints reais do backend.
 - Tela de ajuste de carteira para salvar projecoes de rebalanceamento, usando pesos iguais por padrao quando percentuais nao forem informados e exibindo vendas somente para ativos removidos da composicao alvo.
 - Tela administrativa para cadastrar eventos corporativos, incluindo alteracao de ticker, importar eventos por XLSX e criar novos administradores.
 - Tela administrativa permite aplicar eventos corporativos cadastrados na base existente, incluindo alteracoes de ticker ja importadas.
-- Importacao de negociacoes da B3 normaliza tickers conforme eventos de alteracao cadastrados, permitindo que compras no ticker antigo sejam conciliadas com vendas no ticker novo.
-- Importacao de negociacoes da B3 consulta as projecoes salvas de carteiras e vincula automaticamente operacoes aos tickers da composicao alvo ou da lista de vendas projetadas.
+- Importacao de negociacoes da B3 usa o backend para normalizar tickers conforme eventos de alteracao cadastrados, revisar itens importados e vincular automaticamente operacoes por projecoes salvas quando nao houver conflito.
 - Lint do frontend passando.
 - Build do frontend passando.
 
@@ -94,7 +93,6 @@ Pendente funcional:
 - Ajustar carteiras conforme o backend evoluir: adicionar/remover acoes, movimentar entre carteiras e performance.
 - Adicionar visualizacao detalhada de resultado por venda, caso necessario para o usuario final.
 - Adicionar testes automatizados para autenticacao e acoes.
-- Migrar a importacao B3 da tela de acoes para o fluxo backend de revisao e distribuicao (`POST /acoes/importacoes/b3`, `GET /acoes/importacoes/b3/ultima`, `POST /acoes/importacoes/b3/ultima/distribuicao`).
 
 Pendente de performance:
 

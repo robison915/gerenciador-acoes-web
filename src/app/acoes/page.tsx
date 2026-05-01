@@ -4,11 +4,9 @@ import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "
 import { AppShell, LoadingPanel, ProgressLog } from "@/components/layout/AppShell";
 import type {
   ApiError,
-  CarteiraProjecao,
-  EventoCorporativo,
+  ImportacaoB3,
   ListarCarteirasResponse,
   ListarAcoesResponse,
-  ListarEventosCorporativosResponse,
   ListarTickersResponse,
   OperacaoAcaoPayload,
   OperacoesAcoesResponse,
@@ -17,13 +15,14 @@ import type {
   ResultadoVendasResponse,
 } from "@/lib/api";
 import {
+  consultarUltimaImportacaoB3,
+  distribuirUltimaImportacaoB3,
   getAcaoByTicker,
   getPerformanceAcoes,
+  importarB3Arquivo,
   listAcoes,
   listAcoesAvulsas,
   listCarteiras,
-  listEventosCorporativos,
-  listarProjecoesCarteira,
   listOperacoesAcoes,
   listResultadoVendas,
   listTickers,
@@ -32,7 +31,6 @@ import {
   registrarVenda,
   registrarVendasLote,
 } from "@/lib/api";
-import { parseB3NegociacaoFile, type B3BatchOperation, type B3BatchParseResult } from "@/lib/b3-negociacao";
 
 type OperationForm = {
   ticker: string;
@@ -149,194 +147,6 @@ function parseBatchInput(value: string): OperacaoAcaoPayload[] {
   });
 }
 
-function chunkImportedOperations(operations: B3BatchOperation[], maxSize = 100) {
-  const groups: Array<{ mode: ActionMode; payloads: OperacaoAcaoPayload[] }> = [];
-
-  for (const operation of operations) {
-    const currentGroup = groups[groups.length - 1];
-    if (currentGroup && currentGroup.mode === operation.mode && currentGroup.payloads.length < maxSize) {
-      currentGroup.payloads.push(operation.payload);
-      continue;
-    }
-
-    groups.push({
-      mode: operation.mode,
-      payloads: [operation.payload],
-    });
-  }
-
-  return groups;
-}
-
-function buildTickerChangeMap(corporateEvents: EventoCorporativo[]) {
-  const changes = corporateEvents
-    .filter((event) => event.tipo === "ALTERACAO_TICKER" && event.tickerDestino)
-    .sort((left, right) => new Date(left.dataEvento).getTime() - new Date(right.dataEvento).getTime());
-  const tickerChangeMap = new Map<string, string>();
-
-  for (const event of changes) {
-    tickerChangeMap.set(event.ticker, event.tickerDestino ?? event.ticker);
-  }
-
-  return tickerChangeMap;
-}
-
-function getCanonicalTicker(ticker: string, tickerChangeMap: Map<string, string>) {
-  let current = ticker.trim().toUpperCase();
-  const visited = new Set<string>();
-
-  while (tickerChangeMap.has(current) && !visited.has(current)) {
-    visited.add(current);
-    current = tickerChangeMap.get(current) ?? current;
-  }
-
-  return current;
-}
-
-function normalizeImportedOperationTickers(
-  operations: B3BatchOperation[],
-  corporateEvents: EventoCorporativo[],
-): B3BatchOperation[] {
-  const tickerChangeMap = buildTickerChangeMap(corporateEvents);
-
-  if (tickerChangeMap.size === 0) {
-    return operations;
-  }
-
-  return operations.map((operation) => ({
-    ...operation,
-    payload: {
-      ...operation.payload,
-      ticker: getCanonicalTicker(operation.payload.ticker, tickerChangeMap),
-    },
-  }));
-}
-
-function validateImportedOperationBalances(
-  operations: B3BatchOperation[],
-  currentLoosePositions: PosicaoAcao[],
-  corporateEvents: EventoCorporativo[],
-) {
-  const tickerChangeMap = buildTickerChangeMap(corporateEvents);
-  const balances = new Map<string, number>();
-  const eventsByTicker = new Map<string, EventoCorporativo[]>();
-  const nextEventIndexByTicker = new Map<string, number>();
-
-  for (const position of currentLoosePositions) {
-    const ticker = getCanonicalTicker(position.ticker, tickerChangeMap);
-    balances.set(ticker, (balances.get(ticker) ?? 0) + position.quantidade);
-  }
-
-  for (const event of corporateEvents) {
-    if (event.tipo === "ALTERACAO_TICKER") {
-      continue;
-    }
-
-    const eventTicker = getCanonicalTicker(event.ticker, tickerChangeMap);
-    const events = eventsByTicker.get(eventTicker) ?? [];
-    events.push(event);
-    eventsByTicker.set(eventTicker, events);
-  }
-
-  for (const events of eventsByTicker.values()) {
-    events.sort((left, right) => new Date(left.dataEvento).getTime() - new Date(right.dataEvento).getTime());
-  }
-
-  for (const operation of operations) {
-    if (operation.payload.carteiraId) {
-      continue;
-    }
-
-    const ticker = getCanonicalTicker(operation.payload.ticker, tickerChangeMap);
-    const events = eventsByTicker.get(ticker) ?? [];
-    let nextEventIndex = nextEventIndexByTicker.get(ticker) ?? 0;
-    const operationTime = new Date(operation.payload.dataOperacao ?? 0).getTime();
-
-    while (nextEventIndex < events.length && new Date(events[nextEventIndex].dataEvento).getTime() <= operationTime) {
-      const currentBalance = balances.get(ticker) ?? 0;
-      balances.set(ticker, Number((currentBalance * events[nextEventIndex].fatorQuantidade).toFixed(8)));
-      nextEventIndex += 1;
-    }
-    nextEventIndexByTicker.set(ticker, nextEventIndex);
-
-    const currentBalance = balances.get(ticker) ?? 0;
-
-    if (operation.mode === "compra") {
-      balances.set(ticker, currentBalance + operation.payload.quantidade);
-      continue;
-    }
-
-    if (operation.payload.quantidade > currentBalance) {
-      throw new Error(
-        `Linha ${operation.sourceRow}: venda de ${operation.payload.quantidade} ${ticker} excede o saldo avulso disponivel (${currentBalance}). Importe primeiro as compras anteriores desse ticker ou use um arquivo que comece antes da primeira venda. Nenhuma operacao do arquivo foi enviada.`,
-      );
-    }
-
-    balances.set(ticker, currentBalance - operation.payload.quantidade);
-  }
-}
-
-async function loadProjectionDistributionMap(wallets: ListarCarteirasResponse | null) {
-  const tickerToWalletId = new Map<string, string>();
-
-  if (!wallets?.items.length) {
-    return tickerToWalletId;
-  }
-
-  const results = await Promise.allSettled(
-    wallets.items.map(async (wallet) => {
-      const projections = await listarProjecoesCarteira(wallet.id);
-      return {
-        walletId: wallet.id,
-        projection: projections.items[0] as CarteiraProjecao | undefined,
-      };
-    }),
-  );
-
-  for (const result of results) {
-    if (result.status !== "fulfilled" || !result.value.projection) {
-      continue;
-    }
-
-    for (const asset of result.value.projection.ativos) {
-      if (!tickerToWalletId.has(asset.ticker)) {
-        tickerToWalletId.set(asset.ticker, result.value.walletId);
-      }
-    }
-    for (const sale of result.value.projection.vendas) {
-      if (!tickerToWalletId.has(sale.ticker)) {
-        tickerToWalletId.set(sale.ticker, result.value.walletId);
-      }
-    }
-  }
-
-  return tickerToWalletId;
-}
-
-function applyProjectionDistribution(
-  operations: B3BatchOperation[],
-  tickerToWalletId: Map<string, string>,
-) {
-  if (tickerToWalletId.size === 0) {
-    return operations;
-  }
-
-  return operations.map((operation) => {
-    const carteiraId = tickerToWalletId.get(operation.payload.ticker);
-    if (!carteiraId) {
-      return operation;
-    }
-
-    return {
-      ...operation,
-      payload: {
-        ...operation.payload,
-        carteiraId,
-      },
-    };
-  });
-}
-
 function metricTone(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value) || value === 0) {
     return "text-slate-900";
@@ -383,19 +193,19 @@ export default function AcoesPage() {
   const [operations, setOperations] = useState<OperacoesAcoesResponse | null>(null);
   const [salesResult, setSalesResult] = useState<ResultadoVendasResponse | null>(null);
   const [tickers, setTickers] = useState<ListarTickersResponse | null>(null);
-  const [corporateEvents, setCorporateEvents] = useState<ListarEventosCorporativosResponse | null>(null);
   const [wallets, setWallets] = useState<ListarCarteirasResponse | null>(null);
+  const [b3Import, setB3Import] = useState<ImportacaoB3 | null>(null);
+  const [b3Distribution, setB3Distribution] = useState<Record<number, string>>({});
   const [selectedPosition, setSelectedPosition] = useState<PosicaoAcao | null>(null);
   const [lookupTicker, setLookupTicker] = useState("");
   const [operationMode, setOperationMode] = useState<ActionMode>("compra");
   const [operationForm, setOperationForm] = useState<OperationForm>(emptyForm);
   const [batchMode, setBatchMode] = useState<ActionMode>("compra");
   const [batchText, setBatchText] = useState("");
-  const [batchFileSummary, setBatchFileSummary] = useState<B3BatchParseResult | null>(null);
   const [batchFileName, setBatchFileName] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isParsingBatchFile, setIsParsingBatchFile] = useState(false);
+  const [isImportingB3File, setIsImportingB3File] = useState(false);
   const [batchImportLog, setBatchImportLog] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -411,8 +221,8 @@ export default function AcoesPage() {
         listOperacoesAcoes(),
         listResultadoVendas(),
         listTickers(),
-        listEventosCorporativos(),
         listCarteiras(),
+        consultarUltimaImportacaoB3(),
       ]);
 
     const [
@@ -422,8 +232,8 @@ export default function AcoesPage() {
       operationsResult,
       salesResultData,
       tickersResult,
-      corporateEventsResult,
       walletsResult,
+      b3ImportResult,
     ] = results;
 
     if (positionsResult.status === "fulfilled") {
@@ -444,14 +254,19 @@ export default function AcoesPage() {
     if (tickersResult.status === "fulfilled") {
       setTickers(tickersResult.value);
     }
-    if (corporateEventsResult.status === "fulfilled") {
-      setCorporateEvents(corporateEventsResult.value);
-    }
     if (walletsResult.status === "fulfilled") {
       setWallets(walletsResult.value);
     }
+    if (b3ImportResult.status === "fulfilled") {
+      setB3Import(b3ImportResult.value);
+      setB3Distribution(
+        Object.fromEntries(b3ImportResult.value.itens.map((item) => [item.linha, item.carteiraId ?? ""])),
+      );
+    }
 
-    const firstRejected = results.find((result) => result.status === "rejected");
+    const firstRejected = results
+      .slice(0, 7)
+      .find((result) => result.status === "rejected");
     if (firstRejected?.status === "rejected") {
       const apiError = firstRejected.reason as ApiError;
       setError(apiError.message);
@@ -537,101 +352,74 @@ export default function AcoesPage() {
     const file = event.target.files?.[0];
     if (!file) {
       setBatchFileName("");
-      setBatchFileSummary(null);
       return;
     }
 
     setError(null);
     setNotice(null);
-    setBatchImportLog([`Lendo ${file.name}...`]);
-    setIsParsingBatchFile(true);
+    setBatchImportLog([`Enviando ${file.name} para revisao no backend...`]);
+    setIsImportingB3File(true);
 
     try {
-      const parsed = await parseB3NegociacaoFile(file);
+      const imported = await importarB3Arquivo(file);
       setBatchFileName(file.name);
-      setBatchFileSummary(parsed);
-      setBatchMode(parsed.totalCompras >= parsed.totalVendas ? "compra" : "venda");
+      setB3Import(imported);
+      setB3Distribution(Object.fromEntries(imported.itens.map((item) => [item.linha, item.carteiraId ?? ""])));
       setBatchImportLog([
-        `Arquivo ${file.name} lido.`,
-        `${parsed.totalRows} operacoes encontradas: ${parsed.totalCompras} compras e ${parsed.totalVendas} vendas.`,
+        `Arquivo ${file.name} revisado pelo backend.`,
+        `${imported.totalLinhas} operacoes encontradas: ${imported.totalCompras} compras e ${imported.totalVendas} vendas.`,
+        imported.totalErros > 0
+          ? `${imported.totalErros} itens precisam de correcao antes da distribuicao.`
+          : "Revisao pronta para distribuicao.",
       ]);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Falha ao ler o arquivo da B3.";
+      const message = err instanceof Error ? err.message : (err as ApiError).message;
       setBatchFileName("");
-      setBatchFileSummary(null);
-      setBatchImportLog([`Falha ao ler ${file.name}.`]);
+      setB3Import(null);
+      setB3Distribution({});
+      setBatchImportLog([`Falha ao importar ${file.name}.`]);
       setError(message);
     } finally {
-      setIsParsingBatchFile(false);
+      setIsImportingB3File(false);
       event.target.value = "";
     }
   }
 
   async function handleBatchFileImport() {
-    if (!batchFileSummary) {
-      setError("Selecione um arquivo da B3 antes de importar.");
+    if (!b3Import) {
+      setError("Importe um arquivo da B3 antes de distribuir.");
+      return;
+    }
+    if (b3Import.totalErros > 0) {
+      setError("Corrija os itens invalidos antes de distribuir a importacao.");
+      return;
+    }
+    if (b3Import.status === "DISTRIBUIDA") {
+      setError("Esta importacao ja foi distribuida.");
       return;
     }
 
     setIsSubmitting(true);
     setNotice(null);
     setError(null);
-    setBatchImportLog([`Iniciando importacao de ${batchFileName || "arquivo da B3"}...`]);
+    setBatchImportLog([`Distribuindo ${(b3Import.nomeArquivo ?? batchFileName) || "arquivo da B3"}...`]);
 
     try {
-      setBatchImportLog((current) => [...current, "Normalizando tickers por eventos corporativos cadastrados..."]);
-      const normalizedOperations = normalizeImportedOperationTickers(
-        batchFileSummary.operations,
-        corporateEvents?.items ?? [],
-      );
-
-      setBatchImportLog((current) => [...current, "Consultando projecoes de ajuste salvas para carteiras..."]);
-      const projectionDistributionMap = await loadProjectionDistributionMap(wallets);
-      const distributedOperations = applyProjectionDistribution(normalizedOperations, projectionDistributionMap);
-      const distributedTotal = distributedOperations.filter((operation) => operation.payload.carteiraId).length;
-
-      if (distributedTotal > 0) {
-        setBatchImportLog((current) => [
-          ...current,
-          `${distributedTotal} operacoes foram vinculadas automaticamente por projecoes salvas.`,
-        ]);
-      } else {
-        setBatchImportLog((current) => [...current, "Nenhuma projecao salva aplicavel ao arquivo."]);
-      }
-
-      setBatchImportLog((current) => [...current, "Validando saldo cronologico das operacoes avulsas..."]);
-      validateImportedOperationBalances(
-        distributedOperations,
-        loosePositions?.items ?? [],
-        corporateEvents?.items ?? [],
-      );
-      const groups = chunkImportedOperations(distributedOperations);
-      let totalCompras = 0;
-      let totalVendas = 0;
-
-      for (const [index, group] of groups.entries()) {
-        setBatchImportLog((current) => [
-          ...current,
-          `Enviando lote ${index + 1}/${groups.length}: ${group.payloads.length} ${group.mode === "compra" ? "compras" : "vendas"}...`,
-        ]);
-        if (group.mode === "compra") {
-          const result = await registrarComprasLote(group.payloads);
-          totalCompras += result.totalCompras;
-          continue;
-        }
-
-        const result = await registrarVendasLote(group.payloads);
-        totalVendas += result.totalVendas;
-      }
-
-      setBatchFileName("");
-      setBatchFileSummary(null);
+      const distributed = await distribuirUltimaImportacaoB3({
+        aplicarProjecoes: true,
+        itens: b3Import.itens.map((item) => ({
+          linha: item.linha,
+          carteiraId: b3Distribution[item.linha] || null,
+        })),
+      });
+      setB3Import(distributed);
+      setB3Distribution(Object.fromEntries(distributed.itens.map((item) => [item.linha, item.carteiraId ?? ""])));
       setBatchImportLog((current) => [
         ...current,
-        `Concluido: ${totalCompras} compras e ${totalVendas} vendas importadas.`,
+        `Concluido: ${distributed.totalCompras} compras e ${distributed.totalVendas} vendas distribuidas.`,
         "Atualizando dados da tela...",
       ]);
-      setNotice(`${totalCompras} compras e ${totalVendas} vendas importadas do arquivo da B3.`);
+      setNotice(`${distributed.totalCompras} compras e ${distributed.totalVendas} vendas importadas do arquivo da B3.`);
       await loadData();
     } catch (err) {
       const message = err instanceof Error ? err.message : (err as ApiError).message;
@@ -777,7 +565,7 @@ export default function AcoesPage() {
             <div className="mt-6 border-t border-slate-200 pt-5">
               <h3 className="text-base font-semibold text-slate-900">Arquivo da B3</h3>
               <p className="mt-1 text-sm text-slate-600">
-                Leia o XLSX de negociacao da B3 e registre compras e vendas na ordem cronologica.
+                Envie o XLSX para revisao no backend, confira as linhas e distribua entre carteiras antes de persistir.
               </p>
               <div className="mt-4 space-y-4">
                 <label className="flex flex-col gap-1.5">
@@ -785,33 +573,109 @@ export default function AcoesPage() {
                   <input
                     type="file"
                     accept=".xlsx"
-                    disabled={isSubmitting || isParsingBatchFile}
+                    disabled={isSubmitting || isImportingB3File}
                     onChange={(event) => void handleBatchFileChange(event)}
                     className="rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 disabled:opacity-70"
                   />
                 </label>
 
-                {batchFileSummary ? (
+                {b3Import ? (
                   <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm">
-                    <p className="font-semibold text-slate-900">{batchFileName}</p>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="font-semibold text-slate-900">
+                        {(b3Import.nomeArquivo ?? batchFileName) || "Ultima importacao B3"}
+                      </p>
+                      <span className="w-fit rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
+                        {b3Import.status === "DISTRIBUIDA" ? "Distribuida" : "Em revisao"}
+                      </span>
+                    </div>
                     <p className="mt-1 text-slate-600">
-                      {batchFileSummary.totalRows} operacoes encontradas: {batchFileSummary.totalCompras} compras e{" "}
-                      {batchFileSummary.totalVendas} vendas.
+                      {b3Import.totalLinhas} operacoes encontradas: {b3Import.totalCompras} compras e{" "}
+                      {b3Import.totalVendas} vendas.
                     </p>
+                    {b3Import.totalErros > 0 ? (
+                      <p className="mt-2 text-red-700">{b3Import.totalErros} itens contem erro e impedem a distribuicao.</p>
+                    ) : null}
                   </div>
                 ) : (
                   <p className="text-sm text-slate-500">Selecione um arquivo como `negociacao-2026-04-27-18-00-18.xlsx`.</p>
                 )}
 
+                {b3Import ? (
+                  <div className="max-h-[360px] overflow-auto rounded-md border border-slate-200">
+                    <table className="min-w-full text-left text-xs">
+                      <thead className="sticky top-0 bg-slate-50 uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2">Linha</th>
+                          <th className="px-3 py-2">Tipo</th>
+                          <th className="px-3 py-2">Ticker</th>
+                          <th className="px-3 py-2">Qtd.</th>
+                          <th className="px-3 py-2">Valor</th>
+                          <th className="px-3 py-2">Carteira</th>
+                          <th className="px-3 py-2">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {b3Import.itens.map((item) => (
+                          <tr key={item.linha}>
+                            <td className="px-3 py-2">{item.linha}</td>
+                            <td className="px-3 py-2 font-semibold">{item.tipoOperacao === "COMPRA" ? "Compra" : "Venda"}</td>
+                            <td className="px-3 py-2 font-semibold">{item.ticker}</td>
+                            <td className="px-3 py-2">{formatQuantity(item.quantidade)}</td>
+                            <td className="px-3 py-2">{formatCurrency(item.valorTotal)}</td>
+                            <td className="px-3 py-2">
+                              <select
+                                value={b3Distribution[item.linha] ?? item.carteiraId ?? ""}
+                                disabled={b3Import.status === "DISTRIBUIDA"}
+                                onChange={(event) =>
+                                  setB3Distribution((current) => ({ ...current, [item.linha]: event.target.value }))
+                                }
+                                className="min-w-36 rounded border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-70"
+                              >
+                                <option value="">Avulsa/automatica</option>
+                                {wallets?.items.map((wallet) => (
+                                  <option key={wallet.id} value={wallet.id}>
+                                    {wallet.nome}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span
+                                className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                                  item.status === "VALIDO"
+                                    ? "bg-emerald-50 text-emerald-700"
+                                    : "bg-red-50 text-red-700"
+                                }`}
+                              >
+                                {item.status === "VALIDO" ? "Valido" : "Erro"}
+                              </span>
+                              {[...item.avisos, ...item.erros].length > 0 ? (
+                                <p className="mt-1 max-w-56 text-[11px] leading-4 text-slate-500">
+                                  {[...item.avisos, ...item.erros].join(" ")}
+                                </p>
+                              ) : null}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+
                 <ProgressLog items={batchImportLog} />
 
                 <button
                   type="button"
-                  disabled={isSubmitting || isParsingBatchFile || !batchFileSummary}
+                  disabled={isSubmitting || isImportingB3File || !b3Import || b3Import.status === "DISTRIBUIDA"}
                   onClick={() => void handleBatchFileImport()}
                   className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-70"
                 >
-                  {isSubmitting ? "Importando arquivo..." : isParsingBatchFile ? "Lendo arquivo..." : "Importar arquivo da B3"}
+                  {isSubmitting
+                    ? "Distribuindo importacao..."
+                    : isImportingB3File
+                      ? "Enviando arquivo..."
+                      : "Distribuir e registrar importacao"}
                 </button>
               </div>
             </div>

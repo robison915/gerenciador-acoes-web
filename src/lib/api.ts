@@ -41,16 +41,17 @@ function redirectToLogin() {
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const url = `${API_BASE_URL}${path}`;
   const token = options.token ?? (options.withAuth ? getAuthToken() : null);
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   let response: Response;
 
   try {
     response = await fetch(url, {
       method: options.method ?? "GET",
       headers: {
-        "Content-Type": "application/json",
+        ...(isFormData ? {} : { "Content-Type": "application/json" }),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: options.body ? JSON.stringify(options.body) : undefined,
+      body: options.body ? (isFormData ? (options.body as FormData) : JSON.stringify(options.body)) : undefined,
       cache: "no-store",
     });
   } catch {
@@ -196,6 +197,42 @@ export type TickerCadastrado = {
 export type ListarTickersResponse = {
   items: TickerCadastrado[];
   totalTickers: number;
+};
+
+export type ImportacaoB3Item = {
+  linha: number;
+  tipoOperacao: "COMPRA" | "VENDA";
+  ticker: string;
+  quantidade: number;
+  valorUnitario: number;
+  valorTotal: number;
+  dataOperacao: string;
+  carteiraId: string | null;
+  status: "VALIDO" | "ERRO";
+  avisos: string[];
+  erros: string[];
+};
+
+export type ImportacaoB3 = {
+  id: string;
+  userId: string;
+  status: "REVISADA" | "DISTRIBUIDA";
+  nomeArquivo: string | null;
+  totalLinhas: number;
+  totalCompras: number;
+  totalVendas: number;
+  totalErros: number;
+  itens: ImportacaoB3Item[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DistribuirImportacaoB3Payload = {
+  aplicarProjecoes?: boolean;
+  itens?: Array<{
+    linha: number;
+    carteiraId?: string | null;
+  }>;
 };
 
 export type EventoCorporativo = {
@@ -468,6 +505,32 @@ export function getPerformanceAcoes() {
 
 export function listTickers() {
   return apiRequest<ListarTickersResponse>("/acoes/tickers", { method: "GET", withAuth: true });
+}
+
+export function importarB3Arquivo(file: File) {
+  const formData = new FormData();
+  formData.append("arquivo", file);
+
+  return apiRequest<ImportacaoB3>("/acoes/importacoes/b3", {
+    method: "POST",
+    body: formData,
+    withAuth: true,
+  });
+}
+
+export function consultarUltimaImportacaoB3() {
+  return apiRequest<ImportacaoB3>("/acoes/importacoes/b3/ultima", {
+    method: "GET",
+    withAuth: true,
+  });
+}
+
+export function distribuirUltimaImportacaoB3(payload: DistribuirImportacaoB3Payload) {
+  return apiRequest<ImportacaoB3>("/acoes/importacoes/b3/ultima/distribuicao", {
+    method: "POST",
+    body: payload,
+    withAuth: true,
+  });
 }
 
 export function listEventosCorporativos() {

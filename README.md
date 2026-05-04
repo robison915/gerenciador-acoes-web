@@ -85,7 +85,7 @@ Implementado:
 Pendente tecnico:
 
 - Adicionar testes automatizados de frontend.
-- Adaptar telas para paginação de histórico de operações quando o backend expuser `limit`/`offset` ou cursor.
+- Adaptar telas para consumir a paginação de histórico de operações já exposta pelo backend com `limit`/`offset`.
 - Ajustar carregamento para consumir endpoint consolidado de resumo quando o backend centralizar posições/performance, reduzindo chamadas paralelas duplicadas.
 
 Pendente funcional:

@@ -32,6 +32,7 @@ API_URL=http://localhost:3000
 Uso recomendado:
 
 - `API_URL`: usada pelo proxy interno do Next em `/api/*`.
+- `API_URL` deve apontar para o backend NestJS e nao pode ser a mesma origem do frontend; quando isso acontecer, o proxy retorna erro de configuracao para evitar loop.
 - `NEXT_PUBLIC_API_URL`: opcional; so usar quando chamadas diretas do navegador forem desejadas e CORS estiver configurado.
 
 ## Comandos
@@ -84,7 +85,6 @@ Implementado:
 Pendente tecnico:
 
 - Adicionar testes automatizados de frontend.
-- Revisar fallback de `API_URL` para evitar loop quando backend e frontend usarem a mesma porta.
 - Adaptar telas para paginação de histórico de operações quando o backend expuser `limit`/`offset` ou cursor.
 - Ajustar carregamento para consumir endpoint consolidado de resumo quando o backend centralizar posições/performance, reduzindo chamadas paralelas duplicadas.
 

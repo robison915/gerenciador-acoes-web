@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell, LoadingPanel, ProgressLog } from "@/components/layout/AppShell";
 import type {
   ApiError,
@@ -62,6 +62,8 @@ const numberFormatter = new Intl.NumberFormat("pt-BR", {
 const quantityFormatter = new Intl.NumberFormat("pt-BR", {
   maximumFractionDigits: 8,
 });
+
+const OPERATIONS_PAGE_SIZE = 12;
 
 function formatCurrency(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? currencyFormatter.format(value) : "Sem cotacao";
@@ -204,13 +206,16 @@ export default function AcoesPage() {
   const [batchText, setBatchText] = useState("");
   const [batchFileName, setBatchFileName] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isOperationsLoading, setIsOperationsLoading] = useState(false);
+  const [isSecondaryLoading, setIsSecondaryLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isImportingB3File, setIsImportingB3File] = useState(false);
+  const [operationsOffset, setOperationsOffset] = useState(0);
   const [batchImportLog, setBatchImportLog] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadData() {
+  const loadPrimaryData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
@@ -218,22 +223,14 @@ export default function AcoesPage() {
         listAcoes(),
         listAcoesAvulsas(),
         getPerformanceAcoes(),
-        listOperacoesAcoes(),
-        listResultadoVendas(),
-        listTickers(),
         listCarteiras(),
-        consultarUltimaImportacaoB3(),
       ]);
 
     const [
       positionsResult,
       looseResult,
       performanceResult,
-      operationsResult,
-      salesResultData,
-      tickersResult,
       walletsResult,
-      b3ImportResult,
     ] = results;
 
     if (positionsResult.status === "fulfilled") {
@@ -245,17 +242,45 @@ export default function AcoesPage() {
     if (performanceResult.status === "fulfilled") {
       setPerformance(performanceResult.value);
     }
-    if (operationsResult.status === "fulfilled") {
-      setOperations(operationsResult.value);
+    if (walletsResult.status === "fulfilled") {
+      setWallets(walletsResult.value);
     }
+
+    const firstRejected = results.find((result) => result.status === "rejected");
+    if (firstRejected?.status === "rejected") {
+      const apiError = firstRejected.reason as ApiError;
+      setError(apiError.message);
+    }
+
+    setIsLoading(false);
+  }, []);
+
+  const loadOperationsPage = useCallback(async (offset: number) => {
+    setIsOperationsLoading(true);
+
+    try {
+      const result = await listOperacoesAcoes({ limit: OPERATIONS_PAGE_SIZE, offset });
+      setOperations(result);
+      setOperationsOffset(result.offset);
+    } catch (err) {
+      const apiError = err as ApiError;
+      setError(apiError.message);
+    } finally {
+      setIsOperationsLoading(false);
+    }
+  }, []);
+
+  const loadSecondaryData = useCallback(async () => {
+    setIsSecondaryLoading(true);
+
+    const results = await Promise.allSettled([listResultadoVendas(), listTickers(), consultarUltimaImportacaoB3()]);
+    const [salesResultData, tickersResult, b3ImportResult] = results;
+
     if (salesResultData.status === "fulfilled") {
       setSalesResult(salesResultData.value);
     }
     if (tickersResult.status === "fulfilled") {
       setTickers(tickersResult.value);
-    }
-    if (walletsResult.status === "fulfilled") {
-      setWallets(walletsResult.value);
     }
     if (b3ImportResult.status === "fulfilled") {
       setB3Import(b3ImportResult.value);
@@ -264,24 +289,39 @@ export default function AcoesPage() {
       );
     }
 
-    const firstRejected = results
-      .slice(0, 7)
-      .find((result) => result.status === "rejected");
+    const firstRejected = results.slice(0, 2).find((result) => result.status === "rejected");
     if (firstRejected?.status === "rejected") {
       const apiError = firstRejected.reason as ApiError;
       setError(apiError.message);
     }
 
-    setIsLoading(false);
-  }
+    setIsSecondaryLoading(false);
+  }, []);
+
+  const loadData = useCallback(async () => {
+    setOperationsOffset(0);
+    await loadPrimaryData();
+    await Promise.all([loadOperationsPage(0), loadSecondaryData()]);
+  }, [loadOperationsPage, loadPrimaryData, loadSecondaryData]);
 
   useEffect(() => {
     void loadData();
-  }, []);
+  }, [loadData]);
 
   const topPerformance = useMemo(() => {
     return [...(performance?.items ?? [])].sort((a, b) => b.valorInvestido - a.valorInvestido).slice(0, 8);
   }, [performance]);
+
+  const operationsStart = operations && operations.totalOperacoes > 0 ? operations.offset + 1 : 0;
+  const operationsEnd = operations ? operations.offset + operations.items.length : 0;
+  const previousOperationsOffset = Math.max((operations?.offset ?? 0) - OPERATIONS_PAGE_SIZE, 0);
+  const canGoToPreviousOperations = Boolean(operations && operations.offset > 0 && !isOperationsLoading);
+  const canGoToNextOperations = Boolean(operations?.hasNextPage && !isOperationsLoading);
+
+  function handleOperationsPageChange(offset: number) {
+    setError(null);
+    void loadOperationsPage(offset);
+  }
 
   async function handleOperationSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -433,7 +473,7 @@ export default function AcoesPage() {
     <AppShell title="Acoes" subtitle="Registre operacoes, acompanhe posicoes e veja o resultado dos ativos.">
       {notice ? <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{notice}</p> : null}
       {error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
-      {isLoading ? <LoadingPanel message="Carregando posicoes, operacoes e cotacoes..." /> : null}
+      {isLoading ? <LoadingPanel message="Carregando resumo e posicoes..." /> : null}
 
       <section className="grid gap-4 md:grid-cols-4">
         <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -694,7 +734,7 @@ export default function AcoesPage() {
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                 onClick={() => void loadData()}
               >
-                Atualizar
+                {isLoading || isOperationsLoading || isSecondaryLoading ? "Atualizando..." : "Atualizar"}
               </button>
             </div>
             <div className="overflow-x-auto">
@@ -813,8 +853,33 @@ export default function AcoesPage() {
 
       <section className="grid gap-5 xl:grid-cols-[1fr_360px]">
         <article className="rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 p-5">
-            <h2 className="text-lg font-semibold">Historico de operacoes</h2>
+          <div className="flex flex-col gap-3 border-b border-slate-200 p-5 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Historico de operacoes</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                {operations
+                  ? `${operationsStart}-${operationsEnd} de ${operations.totalOperacoes} operacoes`
+                  : "Historico carregado em paginas."}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={!canGoToPreviousOperations}
+                onClick={() => handleOperationsPageChange(previousOperationsOffset)}
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <button
+                type="button"
+                disabled={!canGoToNextOperations}
+                onClick={() => handleOperationsPageChange(operations?.nextOffset ?? operationsOffset + OPERATIONS_PAGE_SIZE)}
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Proxima
+              </button>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
@@ -829,7 +894,7 @@ export default function AcoesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {operations?.items.slice(0, 12).map((item) => (
+                {operations?.items.map((item) => (
                   <tr key={item.id}>
                     <td className="px-5 py-3">{formatDate(item.dataOperacao)}</td>
                     <td className="px-5 py-3">
@@ -849,7 +914,10 @@ export default function AcoesPage() {
                 ))}
               </tbody>
             </table>
-            {!isLoading && (operations?.items.length ?? 0) === 0 ? <EmptyState message="Nenhuma operacao registrada." /> : null}
+            {isOperationsLoading ? <EmptyState message="Carregando pagina do historico..." /> : null}
+            {!isOperationsLoading && (operations?.items.length ?? 0) === 0 ? (
+              <EmptyState message="Nenhuma operacao registrada." />
+            ) : null}
           </div>
         </article>
 
@@ -860,6 +928,9 @@ export default function AcoesPage() {
               {formatCurrency(salesResult?.ganhoPerdaTotal)}
             </p>
             <p className="mt-1 text-sm text-slate-500">{salesResult?.totalVendas ?? 0} vendas registradas</p>
+            {isSecondaryLoading && !salesResult ? (
+              <p className="mt-3 text-sm text-slate-500">Carregando resultados...</p>
+            ) : null}
           </article>
 
           <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -871,7 +942,10 @@ export default function AcoesPage() {
                   {typeof item.ultimaCotacao === "number" ? ` ${formatNumber(item.ultimaCotacao)}` : ""}
                 </span>
               ))}
-              {!isLoading && (tickers?.items.length ?? 0) === 0 ? <p className="text-sm text-slate-500">Nenhum ticker cadastrado.</p> : null}
+              {isSecondaryLoading && !tickers ? <p className="text-sm text-slate-500">Carregando tickers...</p> : null}
+              {!isSecondaryLoading && (tickers?.items.length ?? 0) === 0 ? (
+                <p className="text-sm text-slate-500">Nenhum ticker cadastrado.</p>
+              ) : null}
             </div>
           </article>
         </aside>

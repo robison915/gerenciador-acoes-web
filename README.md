@@ -79,13 +79,14 @@ Implementado:
 - Tela administrativa para cadastrar eventos corporativos, incluindo alteracao de ticker, importar eventos por XLSX e criar novos administradores.
 - Tela administrativa permite aplicar eventos corporativos cadastrados na base existente, incluindo alteracoes de ticker ja importadas.
 - Importacao de negociacoes da B3 usa o backend para normalizar tickers conforme eventos de alteracao cadastrados, revisar itens importados e vincular automaticamente operacoes por projecoes salvas quando nao houver conflito.
+- Historico de operacoes na tela de acoes consumindo paginacao `limit`/`offset` do backend, com navegacao de pagina e carregamento proprio.
+- Carregamento inicial da tela de acoes prioriza resumo/posicoes e carrega historico/resultados/tickers/importacao como dados secundarios.
 - Lint do frontend passando.
 - Build do frontend passando.
 
 Pendente tecnico:
 
 - Adicionar testes automatizados de frontend.
-- Adaptar telas para consumir a paginação de histórico de operações já exposta pelo backend com `limit`/`offset`.
 - Ajustar carregamento para consumir endpoint consolidado de resumo quando o backend centralizar posições/performance, reduzindo chamadas paralelas duplicadas.
 
 Pendente funcional:
@@ -96,8 +97,7 @@ Pendente funcional:
 
 Pendente de performance:
 
-- Exibir histórico de operações paginado, com navegação de página e estado de carregamento por página.
-- Separar carregamento inicial crítico de dados secundários, priorizando resumo/posições e carregando histórico/resultados depois quando necessário.
+- Reduzir chamadas duplicadas quando o backend expuser endpoint consolidado de resumo operacional.
 
 ## Endpoints que o Frontend Deve Priorizar
 Disponiveis no backend atual:

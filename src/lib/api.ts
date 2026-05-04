@@ -171,6 +171,10 @@ export type PerformanceAcoesResponse = {
 export type OperacoesAcoesResponse = {
   items: OperacaoAcaoResponse[];
   totalOperacoes: number;
+  limit: number;
+  offset: number;
+  hasNextPage: boolean;
+  nextOffset: number | null;
 };
 
 export type ResultadoVenda = OperacaoAcaoResponse & {
@@ -491,8 +495,21 @@ export function getAcaoByTicker(ticker: string) {
   return apiRequest<PosicaoAcao>(`/acoes/${encodeURIComponent(ticker)}`, { method: "GET", withAuth: true });
 }
 
-export function listOperacoesAcoes() {
-  return apiRequest<OperacoesAcoesResponse>("/acoes/operacoes", { method: "GET", withAuth: true });
+export function listOperacoesAcoes(options: { limit?: number; offset?: number } = {}) {
+  const params = new URLSearchParams();
+
+  if (typeof options.limit === "number") {
+    params.set("limit", String(options.limit));
+  }
+  if (typeof options.offset === "number") {
+    params.set("offset", String(options.offset));
+  }
+
+  const query = params.toString();
+  return apiRequest<OperacoesAcoesResponse>(`/acoes/operacoes${query ? `?${query}` : ""}`, {
+    method: "GET",
+    withAuth: true,
+  });
 }
 
 export function listResultadoVendas() {

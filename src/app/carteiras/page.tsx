@@ -2,12 +2,13 @@
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { AppShell, LoadingPanel } from "@/components/layout/AppShell";
-import type { ApiError, Carteira, CarteiraDetalhe, ListarAcoesResponse, ListarCarteirasResponse } from "@/lib/api";
+import type { ApiError, Carteira, CarteiraDetalhe, CarteiraPerformance, ListarAcoesResponse, ListarCarteirasResponse } from "@/lib/api";
 import {
   adicionarAcaoAvulsaEmCarteira,
   createCarteira,
   deleteCarteira,
   getCarteiraById,
+  getCarteiraPerformance,
   listAcoesAvulsas,
   listCarteiras,
   movimentarAcaoEntreCarteiras,
@@ -130,6 +131,7 @@ function toMovementPayload(form: Pick<MovementForm, "ticker" | "quantidade" | "d
 export default function CarteirasPage() {
   const [wallets, setWallets] = useState<ListarCarteirasResponse | null>(null);
   const [selectedWallet, setSelectedWallet] = useState<CarteiraDetalhe | null>(null);
+  const [selectedPerformance, setSelectedPerformance] = useState<CarteiraPerformance | null>(null);
   const [loosePositions, setLoosePositions] = useState<ListarAcoesResponse | null>(null);
   const [walletName, setWalletName] = useState("");
   const [addForm, setAddForm] = useState<MovementForm>(emptyMovementForm);
@@ -160,8 +162,12 @@ export default function CarteirasPage() {
           ? requestedSelectedId
           : fallbackSelectedId;
       if (nextSelectedId) {
-        const detail = await getCarteiraById(nextSelectedId);
+        const [detail, performance] = await Promise.all([
+          getCarteiraById(nextSelectedId),
+          getCarteiraPerformance(nextSelectedId),
+        ]);
         setSelectedWallet(detail);
+        setSelectedPerformance(performance);
         setRemoveForm((current) => ({
           ...current,
           ticker: getValidTicker(detail.posicoes, current.ticker),
@@ -175,6 +181,7 @@ export default function CarteirasPage() {
         }));
       } else {
         setSelectedWallet(null);
+        setSelectedPerformance(null);
         setRemoveForm(emptyMovementForm);
         setTransferForm(emptyMovementForm);
       }
@@ -248,10 +255,15 @@ export default function CarteirasPage() {
     setNotice(null);
     setError(null);
     setSelectedWallet(null);
+    setSelectedPerformance(null);
 
     try {
-      const detail = await getCarteiraById(wallet.id);
+      const [detail, performance] = await Promise.all([
+        getCarteiraById(wallet.id),
+        getCarteiraPerformance(wallet.id),
+      ]);
       setSelectedWallet(detail);
+      setSelectedPerformance(performance);
       setRemoveForm((current) => ({ ...current, ticker: detail.posicoes[0]?.ticker ?? "" }));
       setTransferForm((current) => ({ ...current, ticker: detail.posicoes[0]?.ticker ?? "" }));
     } catch (err) {
@@ -558,6 +570,78 @@ export default function CarteirasPage() {
               </div>
             )}
           </article>
+
+          {selectedPerformance ? (
+            <article className="rounded-lg border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 p-5">
+                <h2 className="text-lg font-semibold">Performance da carteira</h2>
+                <p className="mt-1 text-sm text-slate-600">Resultado consolidado por ativo usando as posicoes vinculadas a esta carteira.</p>
+              </div>
+              <div className="p-5">
+                <div className="grid gap-4 md:grid-cols-4">
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Investido</p>
+                    <p className="mt-2 text-lg font-semibold">{formatCurrency(selectedPerformance.valorInvestidoTotal)}</p>
+                  </div>
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Valor atual</p>
+                    <p className="mt-2 text-lg font-semibold">{formatCurrency(selectedPerformance.valorAtualTotal)}</p>
+                  </div>
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Resultado</p>
+                    <p className={`mt-2 text-lg font-semibold ${resultTone(selectedPerformance.variacaoAbsolutaTotal)}`}>
+                      {formatCurrency(selectedPerformance.variacaoAbsolutaTotal)}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Variacao</p>
+                    <p className={`mt-2 text-lg font-semibold ${resultTone(selectedPerformance.variacaoPercentualTotal)}`}>
+                      {formatPercent(selectedPerformance.variacaoPercentualTotal)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-5 overflow-x-auto rounded-md border border-slate-200">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3">Ticker</th>
+                        <th className="px-4 py-3">Qtd.</th>
+                        <th className="px-4 py-3">Preco medio</th>
+                        <th className="px-4 py-3">Referencia</th>
+                        <th className="px-4 py-3">Investido</th>
+                        <th className="px-4 py-3">Valor atual</th>
+                        <th className="px-4 py-3">Resultado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {selectedPerformance.items.map((item) => (
+                        <tr key={item.ticker}>
+                          <td className="px-4 py-3 font-semibold">{item.ticker}</td>
+                          <td className="px-4 py-3">{formatQuantity(item.quantidade)}</td>
+                          <td className="px-4 py-3">{formatCurrency(item.precoMedio)}</td>
+                          <td className="px-4 py-3">{formatCurrency(item.precoReferencia)}</td>
+                          <td className="px-4 py-3">{formatCurrency(item.valorInvestido)}</td>
+                          <td className="px-4 py-3">{formatCurrency(item.valorAtual)}</td>
+                          <td className={`px-4 py-3 font-semibold ${resultTone(item.variacaoAbsoluta)}`}>
+                            <div className="flex flex-col">
+                              <span>{formatCurrency(item.variacaoAbsoluta)}</span>
+                              <span className="text-xs">{formatPercent(item.variacaoPercentual)}</span>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {selectedPerformance.items.length === 0 ? (
+                    <div className="p-5">
+                      <EmptyState message="Ainda nao ha ativos com performance consolidada nesta carteira." />
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </article>
+          ) : null}
 
           {selectedWallet ? (
             <section className="grid gap-4 lg:grid-cols-3">

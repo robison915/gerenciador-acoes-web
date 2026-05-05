@@ -303,6 +303,11 @@ export type CarteiraDetalhe = Carteira & {
   variacaoPercentualTotal: number;
 };
 
+export type CarteiraPerformance = PerformanceAcoesResponse & {
+  carteiraId: string;
+  nome: string;
+};
+
 export type ListarCarteirasResponse = {
   items: Carteira[];
   totalCarteiras: number;
@@ -598,6 +603,13 @@ export function listCarteiras() {
 
 export function getCarteiraById(id: string) {
   return apiRequest<CarteiraDetalhe>(`/carteiras/${id}`, { method: "GET", withAuth: true });
+}
+
+export function getCarteiraPerformance(id: string) {
+  return apiRequest<CarteiraPerformance>(`/carteiras/${encodeURIComponent(id)}/performance`, {
+    method: "GET",
+    withAuth: true,
+  });
 }
 
 export function deleteCarteira(id: string) {

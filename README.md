@@ -59,7 +59,7 @@ npm run check
 - `/auth/password/reset`: redefinicao de senha com token manual ou por query string.
 - `/auth/me`: dados da conta e logout.
 - `/acoes`: gerenciamento operacional de acoes com compras, vendas, lote, posicoes, performance, historico, resultado de vendas, tickers e acoes avulsas.
-- `/carteiras`: gerenciamento operacional de carteiras com criacao, listagem, detalhe e exclusao usando os endpoints atuais do backend.
+- `/carteiras`: gerenciamento operacional de carteiras com criacao, listagem, detalhe, exclusao, vinculacao de acoes avulsas, remocao para avulsas e movimentacao entre carteiras usando os endpoints atuais do backend.
 - `/carteiras/ajuste`: projecao de rebalanceamento de carteira com lista alvo de acoes, saldo livre, percentuais opcionais, compras/vendas projetadas e exclusao de projecoes.
 - `/admin/login`: entrada administrativa.
 - `/admin`: administracao de eventos corporativos, importacao de eventos por XLSX e criacao de administradores.
@@ -74,7 +74,7 @@ Implementado:
 - Visao geral autenticada.
 - Painel operacional de acoes usando endpoints reais do backend.
 - Importacao de arquivo XLSX de negociacao da B3 pela area de acoes usando o fluxo backend de revisao, distribuicao entre carteiras e persistencia.
-- Tela operacional de carteiras usando endpoints reais do backend.
+- Tela operacional de carteiras usando endpoints reais do backend para criacao, listagem, detalhe, exclusao, vinculacao de acoes avulsas, remocao para avulsas e movimentacao entre carteiras.
 - Tela de ajuste de carteira para salvar projecoes de rebalanceamento, usando pesos iguais por padrao quando percentuais nao forem informados e exibindo vendas somente para ativos removidos da composicao alvo.
 - Tela administrativa para cadastrar eventos corporativos, incluindo alteracao de ticker, importar eventos por XLSX e criar novos administradores.
 - Tela administrativa permite aplicar eventos corporativos cadastrados na base existente, incluindo alteracoes de ticker ja importadas.
@@ -82,16 +82,17 @@ Implementado:
 - Historico de operacoes na tela de acoes consumindo paginacao `limit`/`offset` do backend, com navegacao de pagina e carregamento proprio.
 - Carregamento inicial da tela de acoes prioriza resumo/posicoes e carrega historico/resultados/tickers/importacao como dados secundarios.
 - Lint do frontend passando.
-- Build do frontend passando.
+- Build do frontend pendente de investigacao: `next build` com Turbopack permanece em `Creating an optimized production build` e expira localmente sem erro detalhado; `eslint` e `tsc --noEmit` passam.
 
 Pendente tecnico:
 
 - Adicionar testes automatizados de frontend.
+- Investigar travamento local do `next build` com Turbopack.
 - Ajustar carregamento para consumir endpoint consolidado de resumo quando o backend centralizar posições/performance, reduzindo chamadas paralelas duplicadas.
 
 Pendente funcional:
 
-- Ajustar carteiras conforme o backend evoluir: adicionar/remover acoes, movimentar entre carteiras e performance.
+- Ajustar carteiras conforme o backend evoluir: performance por carteira.
 - Adicionar visualizacao detalhada de resultado por venda, caso necessario para o usuario final.
 - Adicionar testes automatizados para autenticacao e acoes.
 
@@ -129,13 +130,16 @@ Disponiveis no backend atual:
 - `GET /carteiras`
 - `GET /carteiras/:carteiraId`
 - `DELETE /carteiras/:carteiraId`
+- `POST /carteiras/:carteiraId/acoes`
+- `DELETE /carteiras/:carteiraId/acoes/:posicaoId`
+- `POST /carteiras/movimentacoes`
 - `POST /carteiras/:carteiraId/projecoes`
 - `GET /carteiras/:carteiraId/projecoes`
 - `DELETE /carteiras/:carteiraId/projecoes/:projecaoId`
 
 Previstos, mas dependentes do backend:
 
-- CRUD completo de carteiras.
+- Performance consolidada por carteira.
 - Aprimorar UX da distribuicao automatica da importacao B3 quando houver o mesmo ticker em projecoes ativas de mais de uma carteira.
 - Administracao de eventos corporativos.
 

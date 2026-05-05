@@ -86,6 +86,17 @@ function findQuantidadeByTicker(
   return items?.find((item) => item.ticker === ticker)?.quantidade ?? 0;
 }
 
+function getValidTicker(
+  items: Array<{ ticker: string }> | undefined,
+  currentTicker: string,
+) {
+  if (!items?.length) {
+    return "";
+  }
+
+  return items.some((item) => item.ticker === currentTicker) ? currentTicker : items[0].ticker;
+}
+
 function resultTone(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value) || value === 0) {
     return "text-slate-900";
@@ -129,7 +140,7 @@ export default function CarteirasPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadWallets(selectId?: string) {
+  async function loadWallets(selectId?: string | null) {
     setIsLoading(true);
     setError(null);
 
@@ -137,21 +148,35 @@ export default function CarteirasPage() {
       const [data, looseData] = await Promise.all([listCarteiras(), listAcoesAvulsas()]);
       setWallets(data);
       setLoosePositions(looseData);
+      setAddForm((current) => ({
+        ...current,
+        ticker: getValidTicker(looseData.items, current.ticker),
+      }));
 
-      const nextSelectedId = selectId ?? selectedWallet?.id ?? data.items[0]?.id;
+      const requestedSelectedId = selectId === undefined ? selectedWallet?.id : selectId;
+      const fallbackSelectedId = data.items[0]?.id ?? null;
+      const nextSelectedId =
+        requestedSelectedId && data.items.some((wallet) => wallet.id === requestedSelectedId)
+          ? requestedSelectedId
+          : fallbackSelectedId;
       if (nextSelectedId) {
         const detail = await getCarteiraById(nextSelectedId);
         setSelectedWallet(detail);
         setRemoveForm((current) => ({
           ...current,
-          ticker: detail.posicoes.some((position) => position.ticker === current.ticker) ? current.ticker : detail.posicoes[0]?.ticker || "",
+          ticker: getValidTicker(detail.posicoes, current.ticker),
         }));
         setTransferForm((current) => ({
           ...current,
-          ticker: detail.posicoes.some((position) => position.ticker === current.ticker) ? current.ticker : detail.posicoes[0]?.ticker || "",
+          ticker: getValidTicker(detail.posicoes, current.ticker),
+          carteiraDestinoId: data.items.some((wallet) => wallet.id === current.carteiraDestinoId && wallet.id !== nextSelectedId)
+            ? current.carteiraDestinoId
+            : "",
         }));
       } else {
         setSelectedWallet(null);
+        setRemoveForm(emptyMovementForm);
+        setTransferForm(emptyMovementForm);
       }
     } catch (err) {
       const apiError = err as ApiError;
@@ -248,7 +273,7 @@ export default function CarteirasPage() {
     try {
       await deleteCarteira(wallet.id);
       setNotice(`Carteira "${wallet.nome}" excluida.`);
-      await loadWallets(selectedWallet?.id === wallet.id ? undefined : selectedWallet?.id);
+      await loadWallets(selectedWallet?.id === wallet.id ? null : selectedWallet?.id);
     } catch (err) {
       const apiError = err as ApiError;
       setError(apiError.message);
@@ -577,11 +602,14 @@ export default function CarteirasPage() {
                   </label>
                   <button
                     type="submit"
-                    disabled={isSubmitting || !selectedWallet}
+                    disabled={isSubmitting || !selectedWallet || (loosePositions?.items.length ?? 0) === 0}
                     className="w-full rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:opacity-70"
                   >
                     Vincular
                   </button>
+                  {(loosePositions?.items.length ?? 0) === 0 ? (
+                    <p className="text-xs text-slate-500">Nenhuma acao avulsa disponivel para vincular.</p>
+                  ) : null}
                 </form>
               </article>
 
@@ -631,6 +659,9 @@ export default function CarteirasPage() {
                   >
                     Remover
                   </button>
+                  {selectedWallet.posicoes.length === 0 ? (
+                    <p className="text-xs text-slate-500">A carteira nao possui posicoes para remover.</p>
+                  ) : null}
                 </form>
               </article>
 
@@ -699,6 +730,11 @@ export default function CarteirasPage() {
                   >
                     Transferir
                   </button>
+                  {(wallets?.items.length ?? 0) < 2 ? (
+                    <p className="text-xs text-slate-500">Crie outra carteira para movimentar posicoes entre carteiras.</p>
+                  ) : selectedWallet.posicoes.length === 0 ? (
+                    <p className="text-xs text-slate-500">A carteira de origem nao possui posicoes para transferir.</p>
+                  ) : null}
                 </form>
               </article>
             </section>

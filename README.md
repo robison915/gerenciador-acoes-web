@@ -76,18 +76,17 @@ Implementado:
 - Importacao de arquivo XLSX de negociacao da B3 pela area de acoes usando o fluxo backend de revisao, distribuicao entre carteiras e persistencia.
 - Tela operacional de carteiras usando endpoints reais do backend para criacao, listagem, detalhe, exclusao, vinculacao de acoes avulsas, remocao para avulsas, movimentacao entre carteiras e performance por carteira.
 - Tela de ajuste de carteira para salvar projecoes de rebalanceamento, usando pesos iguais por padrao quando percentuais nao forem informados e exibindo vendas somente para ativos removidos da composicao alvo.
-- Tela administrativa para cadastrar eventos corporativos, incluindo alteracao de ticker, importar eventos por XLSX e criar novos administradores.
-- Tela administrativa permite aplicar eventos corporativos cadastrados na base existente, incluindo alteracoes de ticker ja importadas.
+- Tela administrativa para cadastrar e editar eventos corporativos, incluindo alteracao de ticker, importar eventos por XLSX, criar novos administradores e complementar cadastro de tickers.
+- Tela administrativa permite aplicar eventos corporativos cadastrados na base existente, processar evento individual e consultar auditoria de execucoes.
 - Importacao de negociacoes da B3 usa o backend para normalizar tickers conforme eventos de alteracao cadastrados, revisar itens importados e vincular automaticamente operacoes por projecoes salvas quando nao houver conflito.
 - Historico de operacoes na tela de acoes consumindo paginacao `limit`/`offset` do backend, com navegacao de pagina e carregamento proprio.
 - Carregamento inicial da tela de acoes prioriza resumo/posicoes e carrega historico/resultados/tickers/importacao como dados secundarios.
 - Lint do frontend passando.
-- Build do frontend pendente de investigacao: `next build` com Turbopack permanece em `Creating an optimized production build` e expira localmente sem erro detalhado; `eslint` e `tsc --noEmit` passam.
+- Build do frontend passando com `next build`.
 
 Pendente tecnico:
 
 - Adicionar testes automatizados de frontend.
-- Investigar travamento local do `next build` com Turbopack.
 - Ajustar carregamento para consumir endpoint consolidado de resumo quando o backend centralizar posições/performance, reduzindo chamadas paralelas duplicadas.
 
 Pendente funcional:
@@ -125,6 +124,10 @@ Disponiveis no backend atual:
 - `GET /admin/eventos-corporativos`
 - `POST /admin/eventos-corporativos`
 - `POST /admin/eventos-corporativos/processar`
+- `PATCH /admin/eventos-corporativos/:eventoId`
+- `POST /admin/eventos-corporativos/:eventoId/processar`
+- `GET /admin/eventos-corporativos/:eventoId/execucoes`
+- `PATCH /admin/acoes/tickers/:ticker`
 - `POST /admin/usuarios/admins`
 - `POST /carteiras`
 - `GET /carteiras`
@@ -141,7 +144,6 @@ Disponiveis no backend atual:
 Previstos, mas dependentes do backend:
 
 - Aprimorar UX da distribuicao automatica da importacao B3 quando houver o mesmo ticker em projecoes ativas de mais de uma carteira.
-- Administracao de eventos corporativos.
 
 ## Criterios de Done
 Uma mudanca no frontend so deve ser considerada pronta quando:

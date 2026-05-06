@@ -193,6 +193,7 @@ export type ResultadoVendasResponse = {
 export type TickerCadastrado = {
   id: string;
   ticker: string;
+  nomeEmpresa: string | null;
   ultimaCotacao: number | null;
   dataHoraUltimaCotacao: string | null;
   createdAt: string;
@@ -273,6 +274,33 @@ export type ProcessarEventosCorporativosResponse = {
     tickerOrigemRemovido: boolean;
     tickerDestinoCriado: boolean;
   }[];
+};
+
+export type EventoCorporativoExecucao = {
+  id: string;
+  eventoId: string;
+  ticker: string;
+  tickerDestino: string | null;
+  operacoesAtualizadas: number;
+  tickerOrigemAtualizado: boolean;
+  tickerOrigemRemovido: boolean;
+  tickerDestinoCriado: boolean;
+  createdAt: string;
+};
+
+export type ListarExecucoesEventoCorporativoResponse = {
+  items: EventoCorporativoExecucao[];
+  totalExecucoes: number;
+};
+
+export type EventoCorporativoPayload = {
+  ticker: string;
+  tickerDestino?: string;
+  tipo: "DESDOBRAMENTO" | "GRUPAMENTO" | "ALTERACAO_TICKER";
+  dataEvento: string;
+  fatorQuantidade: number;
+  fatorPreco: number;
+  observacao?: string;
 };
 
 export type Carteira = {
@@ -562,17 +590,17 @@ export function listEventosCorporativos() {
   });
 }
 
-export function createEventoCorporativo(payload: {
-  ticker: string;
-  tickerDestino?: string;
-  tipo: "DESDOBRAMENTO" | "GRUPAMENTO" | "ALTERACAO_TICKER";
-  dataEvento: string;
-  fatorQuantidade: number;
-  fatorPreco: number;
-  observacao?: string;
-}) {
+export function createEventoCorporativo(payload: EventoCorporativoPayload) {
   return apiRequest<EventoCorporativo>("/admin/eventos-corporativos", {
     method: "POST",
+    body: payload,
+    withAuth: true,
+  });
+}
+
+export function updateEventoCorporativo(eventoId: string, payload: EventoCorporativoPayload) {
+  return apiRequest<EventoCorporativo>(`/admin/eventos-corporativos/${encodeURIComponent(eventoId)}`, {
+    method: "PATCH",
     body: payload,
     withAuth: true,
   });
@@ -581,6 +609,34 @@ export function createEventoCorporativo(payload: {
 export function processarEventosCorporativos() {
   return apiRequest<ProcessarEventosCorporativosResponse>("/admin/eventos-corporativos/processar", {
     method: "POST",
+    withAuth: true,
+  });
+}
+
+export function processarEventoCorporativo(eventoId: string) {
+  return apiRequest<ProcessarEventosCorporativosResponse>(
+    `/admin/eventos-corporativos/${encodeURIComponent(eventoId)}/processar`,
+    {
+      method: "POST",
+      withAuth: true,
+    },
+  );
+}
+
+export function listExecucoesEventoCorporativo(eventoId: string) {
+  return apiRequest<ListarExecucoesEventoCorporativoResponse>(
+    `/admin/eventos-corporativos/${encodeURIComponent(eventoId)}/execucoes`,
+    {
+      method: "GET",
+      withAuth: true,
+    },
+  );
+}
+
+export function updateTickerCadastro(ticker: string, payload: { nomeEmpresa?: string | null }) {
+  return apiRequest<TickerCadastrado>(`/admin/acoes/tickers/${encodeURIComponent(ticker)}`, {
+    method: "PATCH",
+    body: payload,
     withAuth: true,
   });
 }

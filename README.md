@@ -82,13 +82,13 @@ Implementado:
 - Importacao de negociacoes da B3 usa o backend para normalizar tickers conforme eventos de alteracao cadastrados, revisar itens importados e vincular automaticamente operacoes por projecoes salvas quando nao houver conflito.
 - Historico de operacoes na tela de acoes consumindo paginacao `limit`/`offset` do backend, com navegacao de pagina e carregamento proprio.
 - Carregamento inicial da tela de acoes prioriza resumo/posicoes e carrega historico/resultados/tickers/importacao como dados secundarios.
-- Testes automatizados iniciais do frontend cobrindo cliente de API, chamadas de autenticacao, acoes, carteiras, administracao e parser de eventos corporativos.
+- Testes automatizados do frontend cobrindo cliente de API, chamadas de autenticacao, acoes, carteiras, administracao, parser de eventos corporativos e regras de fluxo das telas de autenticacao, acoes, carteiras e administracao.
 - Lint do frontend passando.
 - Build do frontend passando com `next build`.
 
 Pendente tecnico:
 
-- Ampliar testes automatizados de frontend para componentes e fluxos de tela.
+- Adotar testes de renderizacao/interacao de componentes quando houver runner DOM/browser dedicado no frontend.
 - Ajustar carregamento para consumir endpoint consolidado de resumo quando o backend centralizar posições/performance, reduzindo chamadas paralelas duplicadas.
 
 Pendente funcional:

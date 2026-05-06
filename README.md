@@ -39,6 +39,7 @@ Uso recomendado:
 
 ```bash
 npm run dev
+npm run test
 npm run lint
 npm run build
 ```
@@ -81,19 +82,19 @@ Implementado:
 - Importacao de negociacoes da B3 usa o backend para normalizar tickers conforme eventos de alteracao cadastrados, revisar itens importados e vincular automaticamente operacoes por projecoes salvas quando nao houver conflito.
 - Historico de operacoes na tela de acoes consumindo paginacao `limit`/`offset` do backend, com navegacao de pagina e carregamento proprio.
 - Carregamento inicial da tela de acoes prioriza resumo/posicoes e carrega historico/resultados/tickers/importacao como dados secundarios.
+- Testes automatizados iniciais do frontend cobrindo cliente de API, chamadas de autenticacao, acoes, carteiras, administracao e parser de eventos corporativos.
 - Lint do frontend passando.
 - Build do frontend passando com `next build`.
 
 Pendente tecnico:
 
-- Adicionar testes automatizados de frontend.
+- Ampliar testes automatizados de frontend para componentes e fluxos de tela.
 - Ajustar carregamento para consumir endpoint consolidado de resumo quando o backend centralizar posições/performance, reduzindo chamadas paralelas duplicadas.
 
 Pendente funcional:
 
 - Ajustar carteiras conforme o backend evoluir.
 - Adicionar visualizacao detalhada de resultado por venda, caso necessario para o usuario final.
-- Adicionar testes automatizados para autenticacao e acoes.
 
 Pendente de performance:
 
@@ -149,6 +150,7 @@ Previstos, mas dependentes do backend:
 Uma mudanca no frontend so deve ser considerada pronta quando:
 
 - `npm run lint` passa.
+- `npm run test` passa.
 - `npm run build` passa, exceto quando a tarefa for explicitamente registrar ou corrigir a quebra atual.
 - Chamadas de API estao alinhadas ao README do backend.
 - O README foi atualizado quando o estado funcional mudou.

@@ -4,6 +4,7 @@ import { type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useS
 import { AppShell, LoadingPanel, ProgressLog } from "@/components/layout/AppShell";
 import type {
   ApiError,
+  CarteiraProjecao,
   ImportacaoB3,
   ListarCarteirasResponse,
   ListarAcoesResponse,
@@ -19,6 +20,7 @@ import {
   getAcaoByTicker,
   getPerformanceAcoes,
   importarB3Arquivo,
+  listarProjecoesCarteira,
   listAcoes,
   listAcoesAvulsas,
   listCarteiras,
@@ -36,6 +38,12 @@ import {
   toOperacaoPayload,
   type OperationForm,
 } from "@/lib/acoes-flow";
+import {
+  buildB3ProjectionDiagnostics,
+  createInitialB3Distribution,
+  getUnresolvedB3ProjectionConflicts,
+  type B3ProjectionDiagnosticsResult,
+} from "@/lib/b3-distribution-flow";
 
 type ActionMode = "compra" | "venda";
 
@@ -135,6 +143,10 @@ export default function AcoesPage() {
   const [wallets, setWallets] = useState<ListarCarteirasResponse | null>(null);
   const [b3Import, setB3Import] = useState<ImportacaoB3 | null>(null);
   const [b3Distribution, setB3Distribution] = useState<Record<number, string>>({});
+  const [b3ProjectionDiagnostics, setB3ProjectionDiagnostics] = useState<B3ProjectionDiagnosticsResult>({
+    items: [],
+    conflicts: [],
+  });
   const [selectedPosition, setSelectedPosition] = useState<PosicaoAcao | null>(null);
   const [lookupTicker, setLookupTicker] = useState("");
   const [operationMode, setOperationMode] = useState<ActionMode>("compra");
@@ -147,6 +159,7 @@ export default function AcoesPage() {
   const [isSecondaryLoading, setIsSecondaryLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isImportingB3File, setIsImportingB3File] = useState(false);
+  const [isLoadingB3ProjectionHints, setIsLoadingB3ProjectionHints] = useState(false);
   const [operationsOffset, setOperationsOffset] = useState(0);
   const [batchImportLog, setBatchImportLog] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -221,9 +234,7 @@ export default function AcoesPage() {
     }
     if (b3ImportResult.status === "fulfilled") {
       setB3Import(b3ImportResult.value);
-      setB3Distribution(
-        Object.fromEntries(b3ImportResult.value.itens.map((item) => [item.linha, item.carteiraId ?? ""])),
-      );
+      setB3Distribution(createInitialB3Distribution(b3ImportResult.value));
     }
 
     const firstRejected = results.slice(0, 2).find((result) => result.status === "rejected");
@@ -245,9 +256,55 @@ export default function AcoesPage() {
     void loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadProjectionHints() {
+      if (!b3Import || b3Import.status === "DISTRIBUIDA" || !wallets?.items.length) {
+        setB3ProjectionDiagnostics({ items: [], conflicts: [] });
+        setIsLoadingB3ProjectionHints(false);
+        return;
+      }
+
+      setIsLoadingB3ProjectionHints(true);
+      const projectionResults = await Promise.allSettled(
+        wallets.items.map(async (wallet) => {
+          const result = await listarProjecoesCarteira(wallet.id);
+          return [wallet.id, result.items[0] ?? null] as const;
+        }),
+      );
+
+      if (!isCurrent) {
+        return;
+      }
+
+      const latestProjectionByWallet: Record<string, CarteiraProjecao | null> = {};
+      for (const result of projectionResults) {
+        if (result.status === "fulfilled") {
+          const [walletId, projection] = result.value;
+          latestProjectionByWallet[walletId] = projection;
+        }
+      }
+      setB3ProjectionDiagnostics(buildB3ProjectionDiagnostics(b3Import, wallets.items, latestProjectionByWallet));
+      setIsLoadingB3ProjectionHints(false);
+    }
+
+    void loadProjectionHints();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [b3Import, wallets]);
+
   const topPerformance = useMemo(() => {
     return [...(performance?.items ?? [])].sort((a, b) => b.valorInvestido - a.valorInvestido).slice(0, 8);
   }, [performance]);
+  const b3ProjectionDiagnosticByLine = useMemo(() => {
+    return new Map(b3ProjectionDiagnostics.items.map((item) => [item.linha, item]));
+  }, [b3ProjectionDiagnostics]);
+  const unresolvedB3ProjectionConflicts = useMemo(() => {
+    return getUnresolvedB3ProjectionConflicts(b3ProjectionDiagnostics, b3Distribution);
+  }, [b3Distribution, b3ProjectionDiagnostics]);
 
   const operationsStart = operations && operations.totalOperacoes > 0 ? operations.offset + 1 : 0;
   const operationsEnd = operations ? operations.offset + operations.items.length : 0;
@@ -341,7 +398,7 @@ export default function AcoesPage() {
       const imported = await importarB3Arquivo(file);
       setBatchFileName(file.name);
       setB3Import(imported);
-      setB3Distribution(Object.fromEntries(imported.itens.map((item) => [item.linha, item.carteiraId ?? ""])));
+      setB3Distribution(createInitialB3Distribution(imported));
       setBatchImportLog([
         `Arquivo ${file.name} revisado pelo backend.`,
         `${imported.totalLinhas} operacoes encontradas: ${imported.totalCompras} compras e ${imported.totalVendas} vendas.`,
@@ -375,6 +432,15 @@ export default function AcoesPage() {
       setError("Esta importacao ja foi distribuida.");
       return;
     }
+    if (unresolvedB3ProjectionConflicts.length > 0) {
+      const linhas = unresolvedB3ProjectionConflicts.map((conflict) => conflict.linha).join(", ");
+      setError(`Escolha uma carteira para as linhas com conflito de projecoes: ${linhas}.`);
+      setBatchImportLog((current) => [
+        ...current,
+        `${unresolvedB3ProjectionConflicts.length} linha(s) aparecem em mais de uma projecao ativa e precisam de escolha manual.`,
+      ]);
+      return;
+    }
 
     setIsSubmitting(true);
     setNotice(null);
@@ -390,7 +456,7 @@ export default function AcoesPage() {
         })),
       });
       setB3Import(distributed);
-      setB3Distribution(Object.fromEntries(distributed.itens.map((item) => [item.linha, item.carteiraId ?? ""])));
+      setB3Distribution(createInitialB3Distribution(distributed));
       setBatchImportLog((current) => [
         ...current,
         `Concluido: ${distributed.totalCompras} compras e ${distributed.totalVendas} vendas distribuidas.`,
@@ -573,6 +639,21 @@ export default function AcoesPage() {
                     {b3Import.totalErros > 0 ? (
                       <p className="mt-2 text-red-700">{b3Import.totalErros} itens contem erro e impedem a distribuicao.</p>
                     ) : null}
+                    {isLoadingB3ProjectionHints ? (
+                      <p className="mt-2 text-slate-600">Conferindo projeções de carteiras para sugerir a distribuição...</p>
+                    ) : unresolvedB3ProjectionConflicts.length > 0 ? (
+                      <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
+                        {unresolvedB3ProjectionConflicts.length} linha(s) aparecem em mais de uma projeção ativa.
+                        Escolha a carteira manualmente antes de registrar.
+                      </p>
+                    ) : b3ProjectionDiagnostics.conflicts.length > 0 ? (
+                      <p className="mt-2 text-slate-600">Conflitos de projeção resolvidos manualmente.</p>
+                    ) : b3ProjectionDiagnostics.items.some((item) => item.candidateWalletIds.length === 1) ? (
+                      <p className="mt-2 text-slate-600">
+                        Projeções ativas encontradas para parte das linhas; o backend pode preencher carteiras automaticamente
+                        quando não houver conflito.
+                      </p>
+                    ) : null}
                   </div>
                 ) : (
                   <p className="text-sm text-slate-500">Selecione um arquivo como `negociacao-2026-04-27-18-00-18.xlsx`.</p>
@@ -593,8 +674,16 @@ export default function AcoesPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 bg-white">
-                        {b3Import.itens.map((item) => (
-                          <tr key={item.linha}>
+                        {b3Import.itens.map((item) => {
+                          const projectionDiagnostic = b3ProjectionDiagnosticByLine.get(item.linha);
+                          const selectedWalletId = b3Distribution[item.linha] ?? item.carteiraId ?? "";
+                          const isProjectionConflict =
+                            Boolean(projectionDiagnostic?.isConflict) && !selectedWalletId;
+                          return (
+                          <tr
+                            key={item.linha}
+                            className={isProjectionConflict ? "bg-amber-50/60" : undefined}
+                          >
                             <td className="px-3 py-2">{item.linha}</td>
                             <td className="px-3 py-2 font-semibold">{item.tipoOperacao === "COMPRA" ? "Compra" : "Venda"}</td>
                             <td className="px-3 py-2 font-semibold">{item.ticker}</td>
@@ -602,20 +691,33 @@ export default function AcoesPage() {
                             <td className="px-3 py-2">{formatCurrency(item.valorTotal)}</td>
                             <td className="px-3 py-2">
                               <select
-                                value={b3Distribution[item.linha] ?? item.carteiraId ?? ""}
+                                value={selectedWalletId}
                                 disabled={b3Import.status === "DISTRIBUIDA"}
                                 onChange={(event) =>
                                   setB3Distribution((current) => ({ ...current, [item.linha]: event.target.value }))
                                 }
-                                className="min-w-36 rounded border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-70"
+                                className={`min-w-36 rounded border bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-70 ${
+                                  isProjectionConflict ? "border-amber-400 ring-2 ring-amber-100" : "border-slate-300"
+                                }`}
                               >
-                                <option value="">Avulsa/automatica</option>
+                                <option value="">
+                                  {projectionDiagnostic?.isConflict ? "Escolha uma carteira" : "Avulsa/automatica"}
+                                </option>
                                 {wallets?.items.map((wallet) => (
                                   <option key={wallet.id} value={wallet.id}>
                                     {wallet.nome}
                                   </option>
                                 ))}
                               </select>
+                              {projectionDiagnostic?.isConflict ? (
+                                <p className="mt-1 max-w-56 text-[11px] leading-4 text-amber-700">
+                                  Conflito entre: {projectionDiagnostic.candidateWalletNames.join(", ")}.
+                                </p>
+                              ) : projectionDiagnostic?.candidateWalletNames.length === 1 && !selectedWalletId ? (
+                                <p className="mt-1 max-w-56 text-[11px] leading-4 text-slate-500">
+                                  Projeção sugere {projectionDiagnostic.candidateWalletNames[0]}.
+                                </p>
+                              ) : null}
                             </td>
                             <td className="px-3 py-2">
                               <span
@@ -634,7 +736,8 @@ export default function AcoesPage() {
                               ) : null}
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

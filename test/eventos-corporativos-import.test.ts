@@ -43,15 +43,29 @@ describe("parseEventosCorporativosFile", () => {
         "Fator quantidade sugerido": "0,025",
         "Fator preco sugerido": "40",
       },
+      {
+        Ticker: "ciel3",
+        Tipo: "Cancelamento de ticker",
+        "Data evento": "27/08/2024",
+        "Fator quantidade sugerido": 1,
+        "Fator preco sugerido": 1,
+      },
     ]);
 
     const result = await parseEventosCorporativosFile(file);
 
-    assert.equal(result.totalRows, 3);
+    assert.equal(result.totalRows, 4);
     assert.equal(result.ignoredRows, 0);
     assert.deepEqual(
       result.items.map((item) => item.payload),
       [
+        {
+          ticker: "CIEL3",
+          tipo: "CANCELAMENTO_TICKER",
+          dataEvento: "2024-08-27T12:00:00.000Z",
+          fatorQuantidade: 1,
+          fatorPreco: 1,
+        },
         {
           ticker: "MGLU3",
           tipo: "DESDOBRAMENTO",
@@ -92,7 +106,7 @@ describe("parseEventosCorporativosFile", () => {
 
     await assert.rejects(
       () => parseEventosCorporativosFile(file),
-      /Nenhum evento de desdobramento ou grupamento/,
+      /Nenhum evento corporativo suportado/,
     );
   });
 });

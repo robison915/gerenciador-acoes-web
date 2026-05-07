@@ -3,7 +3,7 @@ import type { EventoCorporativo } from "@/lib/api";
 export type EventForm = {
   ticker: string;
   tickerDestino: string;
-  tipo: "DESDOBRAMENTO" | "GRUPAMENTO" | "ALTERACAO_TICKER";
+  tipo: "DESDOBRAMENTO" | "GRUPAMENTO" | "ALTERACAO_TICKER" | "CANCELAMENTO_TICKER";
   dataEvento: string;
   fatorQuantidade: string;
   fatorPreco: string;
@@ -26,6 +26,7 @@ export function eventTypeLabel(tipo: EventoCorporativo["tipo"]) {
     DESDOBRAMENTO: "Desdobramento",
     GRUPAMENTO: "Grupamento",
     ALTERACAO_TICKER: "Alteracao de ticker",
+    CANCELAMENTO_TICKER: "Cancelamento de ticker",
   };
 
   return labels[tipo];

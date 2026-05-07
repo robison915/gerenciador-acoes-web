@@ -1,5 +1,10 @@
+"use client";
+
 import Link from "next/link";
-import { PropsWithChildren } from "react";
+import { PropsWithChildren, useEffect, useState } from "react";
+import type { UserRole } from "@/lib/api";
+import { getMe } from "@/lib/api";
+import { getNavigationItemsForRole } from "@/lib/navigation";
 
 type AppShellProps = PropsWithChildren<{
   title: string;
@@ -7,14 +12,32 @@ type AppShellProps = PropsWithChildren<{
 }>;
 
 export function AppShell({ title, subtitle, children }: AppShellProps) {
-  const navItems = [
-    { href: "/", label: "Visao geral" },
-    { href: "/acoes", label: "Acoes" },
-    { href: "/carteiras", label: "Carteiras" },
-    { href: "/carteiras/ajuste", label: "Ajuste" },
-    { href: "/admin", label: "Administracao" },
-    { href: "/auth/me", label: "Conta" },
-  ];
+  const [userRole, setUserRole] = useState<UserRole | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadUserRole() {
+      try {
+        const user = await getMe();
+        if (active) {
+          setUserRole(user.role);
+        }
+      } catch {
+        if (active) {
+          setUserRole(null);
+        }
+      }
+    }
+
+    void loadUserRole();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const navItems = getNavigationItemsForRole(userRole);
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">

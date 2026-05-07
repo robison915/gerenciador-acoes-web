@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, type FormEvent, useState } from "react";
 import { AuthForm, Feedback, FormField, SubmitButton } from "@/components/auth/AuthForm";
 import { AuthShell } from "@/components/auth/AuthShell";
-import { getMe, login } from "@/lib/api";
+import { clearAuthToken, getMe, login } from "@/lib/api";
 import type { ApiError } from "@/lib/api";
 
 function AdminLoginForm() {
@@ -25,12 +25,13 @@ function AdminLoginForm() {
       await login({ email, password });
       const user = await getMe();
       if (user.role !== "ADMIN") {
+        clearAuthToken();
         setError("Este acesso e restrito a administradores.");
         return;
       }
 
       const redirectParam = searchParams.get("redirect");
-      const redirectTo = redirectParam && redirectParam.startsWith("/") ? redirectParam : "/admin";
+      const redirectTo = redirectParam?.startsWith("/admin") ? redirectParam : "/admin";
       router.push(redirectTo);
     } catch (err) {
       const apiError = err as ApiError;

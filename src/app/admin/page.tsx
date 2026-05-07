@@ -387,7 +387,7 @@ export default function AdminPage() {
               <div className="flex flex-col gap-1">
                 <h2 className="text-lg font-semibold text-slate-900">Importar eventos</h2>
                 <p className="text-sm text-slate-600">
-                  Use a planilha com a aba Eventos 2020+ para cadastrar desdobramentos e grupamentos em lote.
+                  Use a planilha com a aba Eventos 2020+ para cadastrar eventos corporativos em lote.
                 </p>
               </div>
 
@@ -523,7 +523,8 @@ export default function AdminPage() {
                       setEventForm((current) => ({
                         ...current,
                         tipo: event.target.value as EventForm["tipo"],
-                        ...(event.target.value === "ALTERACAO_TICKER"
+                        ...(event.target.value === "ALTERACAO_TICKER" ||
+                        event.target.value === "CANCELAMENTO_TICKER"
                           ? { fatorQuantidade: "1", fatorPreco: "1" }
                           : {}),
                       }))
@@ -533,6 +534,7 @@ export default function AdminPage() {
                     <option value="DESDOBRAMENTO">Desdobramento</option>
                     <option value="GRUPAMENTO">Grupamento</option>
                     <option value="ALTERACAO_TICKER">Alteracao de ticker</option>
+                    <option value="CANCELAMENTO_TICKER">Cancelamento de ticker</option>
                   </select>
                 </label>
 

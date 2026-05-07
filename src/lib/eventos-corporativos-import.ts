@@ -4,7 +4,7 @@ import type { EventoCorporativo } from "@/lib/api";
 export type EventoCorporativoImportPayload = {
   ticker: string;
   tickerDestino?: string;
-  tipo: "DESDOBRAMENTO" | "GRUPAMENTO" | "ALTERACAO_TICKER";
+  tipo: "DESDOBRAMENTO" | "GRUPAMENTO" | "ALTERACAO_TICKER" | "CANCELAMENTO_TICKER";
   dataEvento: string;
   fatorQuantidade: number;
   fatorPreco: number;
@@ -72,6 +72,17 @@ function parseTipo(value: unknown, rowNumber: number): EventoCorporativoImportPa
     normalized === "TROCA DE TICKER"
   ) {
     return "ALTERACAO_TICKER";
+  }
+
+  if (
+    normalized === "CANCELAMENTO_TICKER" ||
+    normalized === "CANCELAMENTO DE TICKER" ||
+    normalized === "CANCELAMENTO_NEGOCIACAO" ||
+    normalized === "CANCELAMENTO DE NEGOCIACAO" ||
+    normalized === "EXCLUSAO_TICKER" ||
+    normalized === "EXCLUSAO DE TICKER"
+  ) {
+    return "CANCELAMENTO_TICKER";
   }
 
   if (!normalized) {
@@ -193,7 +204,7 @@ export async function parseEventosCorporativosFile(file: File): Promise<EventoCo
   });
 
   if (items.length === 0) {
-    throw new Error("Nenhum evento de desdobramento ou grupamento foi encontrado no arquivo.");
+    throw new Error("Nenhum evento corporativo suportado foi encontrado no arquivo.");
   }
 
   items.sort((left, right) => {

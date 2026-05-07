@@ -244,7 +244,7 @@ export type EventoCorporativo = {
   id: string;
   ticker: string;
   tickerDestino: string | null;
-  tipo: "DESDOBRAMENTO" | "GRUPAMENTO" | "ALTERACAO_TICKER";
+  tipo: "DESDOBRAMENTO" | "GRUPAMENTO" | "ALTERACAO_TICKER" | "CANCELAMENTO_TICKER";
   dataEvento: string;
   fatorQuantidade: number;
   fatorPreco: number;
@@ -268,7 +268,7 @@ export type ProcessarEventosCorporativosResponse = {
   items: {
     eventoId: string;
     ticker: string;
-    tickerDestino: string;
+    tickerDestino: string | null;
     operacoesAtualizadas: number;
     tickerOrigemAtualizado: boolean;
     tickerOrigemRemovido: boolean;
@@ -296,7 +296,7 @@ export type ListarExecucoesEventoCorporativoResponse = {
 export type EventoCorporativoPayload = {
   ticker: string;
   tickerDestino?: string;
-  tipo: "DESDOBRAMENTO" | "GRUPAMENTO" | "ALTERACAO_TICKER";
+  tipo: "DESDOBRAMENTO" | "GRUPAMENTO" | "ALTERACAO_TICKER" | "CANCELAMENTO_TICKER";
   dataEvento: string;
   fatorQuantidade: number;
   fatorPreco: number;

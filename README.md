@@ -77,9 +77,11 @@ Implementado:
 - Importacao de arquivo XLSX de negociacao da B3 pela area de acoes usando o fluxo backend de revisao, distribuicao entre carteiras e persistencia.
 - Tela operacional de carteiras usando endpoints reais do backend para criacao, listagem, detalhe, exclusao, vinculacao de acoes avulsas, remocao para avulsas, movimentacao entre carteiras e performance por carteira.
 - Tela de ajuste de carteira para salvar projecoes de rebalanceamento, usando pesos iguais por padrao quando percentuais nao forem informados e exibindo vendas somente para ativos removidos da composicao alvo.
-- Tela administrativa para cadastrar e editar eventos corporativos, incluindo alteracao de ticker, importar eventos por XLSX, criar novos administradores e complementar cadastro de tickers.
+- Tela administrativa para cadastrar e editar eventos corporativos, incluindo alteracao e cancelamento de ticker, importar eventos por XLSX, criar novos administradores e complementar cadastro de tickers.
+- Navegacao separada por perfil: clientes nao veem administracao; administradores nao veem acoes, carteiras nem ajuste de carteira.
 - Tela administrativa permite aplicar eventos corporativos cadastrados na base existente, processar evento individual e consultar auditoria de execucoes.
 - Importacao de negociacoes da B3 usa o backend para normalizar tickers conforme eventos de alteracao cadastrados, revisar itens importados e vincular automaticamente operacoes por projecoes salvas quando nao houver conflito.
+- Importacao B3 antecipa conflitos quando o mesmo ticker aparece na ultima projecao ativa de mais de uma carteira, destaca as linhas afetadas e exige escolha manual antes de registrar.
 - Historico de operacoes na tela de acoes consumindo paginacao `limit`/`offset` do backend, com navegacao de pagina e carregamento proprio.
 - Carregamento inicial da tela de acoes prioriza resumo/posicoes e carrega historico/resultados/tickers/importacao como dados secundarios.
 - Testes automatizados do frontend cobrindo cliente de API, chamadas de autenticacao, acoes, carteiras, administracao, parser de eventos corporativos e regras de fluxo das telas de autenticacao, acoes, carteiras e administracao.
@@ -141,10 +143,6 @@ Disponiveis no backend atual:
 - `POST /carteiras/:carteiraId/projecoes`
 - `GET /carteiras/:carteiraId/projecoes`
 - `DELETE /carteiras/:carteiraId/projecoes/:projecaoId`
-
-Previstos, mas dependentes do backend:
-
-- Aprimorar UX da distribuicao automatica da importacao B3 quando houver o mesmo ticker em projecoes ativas de mais de uma carteira.
 
 ## Criterios de Done
 Uma mudanca no frontend so deve ser considerada pronta quando:

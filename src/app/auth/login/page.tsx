@@ -7,7 +7,7 @@ import { AuthForm, Feedback, FormField, SubmitButton } from "@/components/auth/A
 import { AuthShell } from "@/components/auth/AuthShell";
 import type { ApiError } from "@/lib/api";
 import { login } from "@/lib/api";
-import { getSafeRedirect } from "@/lib/auth-flow";
+import { getPostLoginRedirect } from "@/lib/auth-flow";
 
 function LoginForm() {
   const router = useRouter();
@@ -23,9 +23,9 @@ function LoginForm() {
     setError(null);
 
     try {
-      await login({ email, password });
+      const result = await login({ email, password });
       const redirectParam = searchParams.get("redirect");
-      router.push(getSafeRedirect(redirectParam));
+      router.push(getPostLoginRedirect(redirectParam, result.user?.role));
     } catch (err) {
       const apiError = err as ApiError;
       setError(apiError.message);

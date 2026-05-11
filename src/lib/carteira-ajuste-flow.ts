@@ -1,4 +1,9 @@
-import type { Carteira, CarteiraProjecao, CarteiraProjecaoOperacao } from "@/lib/api";
+import type {
+  Carteira,
+  CarteiraProjecao,
+  CarteiraProjecaoOperacao,
+  ProjetarAjusteCarteiraPayload,
+} from "@/lib/api";
 
 export type AjusteCarteiraAlocacao = {
   carteiraId: string;
@@ -38,6 +43,16 @@ export type AjusteCarteirasPlano = {
   quantidadeVendas: number;
   valorVendas: number;
 };
+
+export function toProjetarAjusteCarteiraPayload(projection: CarteiraProjecao): ProjetarAjusteCarteiraPayload {
+  return {
+    saldoInformado: projection.saldoInformado,
+    ativos: projection.ativos.map((asset) => ({
+      ticker: asset.ticker,
+      percentual: asset.percentual,
+    })),
+  };
+}
 
 type OperacaoPendente = CarteiraProjecaoOperacao & {
   carteiraId: string;

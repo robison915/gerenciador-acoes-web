@@ -18,6 +18,7 @@ import {
 } from "@/lib/api";
 import {
   buildAjusteCarteirasPlano,
+  toProjetarAjusteCarteiraPayload,
   type AjusteCarteiraMovimentacao,
   type AjusteCarteiraOperacaoReal,
 } from "@/lib/carteira-ajuste-flow";
@@ -250,6 +251,7 @@ export default function AjusteCarteiraPage() {
   const [targetAssetsText, setTargetAssetsText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRefreshingProjections, setIsRefreshingProjections] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -270,6 +272,7 @@ export default function AjusteCarteiraPage() {
     () => buildAjusteCarteirasPlano(latestProjections, wallets?.items ?? []),
     [latestProjections, wallets],
   );
+  const isMutating = isSubmitting || isRefreshingProjections;
 
   async function loadLatestProjectionsByWallet(walletItems: Carteira[]) {
     if (walletItems.length === 0) {
@@ -387,6 +390,49 @@ export default function AjusteCarteiraPage() {
     }
   }
 
+  async function handleRefreshLatestProjections() {
+    if (latestProjections.length === 0) {
+      setError("Nenhuma projecao salva para atualizar.");
+      return;
+    }
+
+    setIsRefreshingProjections(true);
+    setNotice(null);
+    setError(null);
+
+    try {
+      const results = await Promise.allSettled(
+        latestProjections.map((projection) =>
+          projetarAjusteCarteira(projection.carteiraId, toProjetarAjusteCarteiraPayload(projection)),
+        ),
+      );
+      const updatedCount = results.filter((result) => result.status === "fulfilled").length;
+      const failedCount = results.length - updatedCount;
+
+      if (updatedCount === 0) {
+        const firstFailure = results.find((result) => result.status === "rejected");
+        const reason = firstFailure?.status === "rejected" ? firstFailure.reason : null;
+        throw new Error(reason instanceof Error ? reason.message : "Nao foi possivel atualizar as projecoes.");
+      }
+
+      if (selectedWalletId) {
+        await loadProjections(selectedWalletId);
+      }
+      await loadLatestProjectionsByWallet(wallets?.items ?? []);
+
+      setNotice(
+        failedCount > 0
+          ? `${updatedCount} projecao(oes) atualizada(s); ${failedCount} falhou(ram).`
+          : `${updatedCount} projecao(oes) atualizada(s) com as cotacoes atuais da base.`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : (err as ApiError).message;
+      setError(message);
+    } finally {
+      setIsRefreshingProjections(false);
+    }
+  }
+
   async function handleDeleteProjection(projection: CarteiraProjecao) {
     const confirmed = window.confirm("Excluir esta projecao de ajuste?");
     if (!confirmed) {
@@ -467,7 +513,7 @@ export default function AjusteCarteiraPage() {
 
           <button
             type="submit"
-            disabled={isSubmitting || !selectedWalletId}
+            disabled={isMutating || !selectedWalletId}
             className="w-full rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             {isSubmitting ? "Calculando..." : "Gerar projecao"}
@@ -487,7 +533,7 @@ export default function AjusteCarteiraPage() {
                 <button
                   type="button"
                   onClick={() => void handleDeleteProjection(currentProjection)}
-                  disabled={isSubmitting}
+                  disabled={isMutating}
                   className="rounded-md border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Excluir projecao
@@ -534,9 +580,19 @@ export default function AjusteCarteiraPage() {
                     Ultimas projecoes consolidadas para separar movimentacoes internas das ordens na corretora.
                   </p>
                 </div>
-                <span className="w-fit rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-                  {formatCountLabel(latestProjections.length, "carteira com projecao", "carteiras com projecao")}
-                </span>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <span className="w-fit rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                    {formatCountLabel(latestProjections.length, "carteira com projecao", "carteiras com projecao")}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleRefreshLatestProjections()}
+                    disabled={isMutating || latestProjections.length === 0}
+                    className="rounded-md border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isRefreshingProjections ? "Atualizando..." : "Atualizar cotacoes"}
+                  </button>
+                </div>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

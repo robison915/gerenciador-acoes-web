@@ -76,7 +76,7 @@ Implementado:
 - Painel operacional de acoes usando endpoints reais do backend.
 - Importacao de arquivo XLSX de negociacao da B3 pela area de acoes usando o fluxo backend de revisao, distribuicao entre carteiras e persistencia.
 - Tela operacional de carteiras usando endpoints reais do backend para criacao, listagem, detalhe, exclusao, vinculacao de acoes avulsas, remocao para avulsas, movimentacao entre carteiras e performance por carteira.
-- Tela de ajuste de carteira para salvar projecoes de rebalanceamento, usando pesos iguais por padrao quando percentuais nao forem informados e exibindo vendas somente para ativos removidos da composicao alvo.
+- Tela de ajuste de carteira para salvar e atualizar projecoes de rebalanceamento com as cotacoes atuais persistidas no backend, usando pesos iguais por padrao quando percentuais nao forem informados e exibindo vendas somente para ativos removidos da composicao alvo.
 - Plano otimizado na tela de ajuste de carteira, consolidando as ultimas projecoes de todas as carteiras para separar movimentacoes internas de compras e vendas reais na corretora.
 - Tela administrativa para cadastrar e editar eventos corporativos, incluindo alteracao e cancelamento de ticker, importar eventos por XLSX, criar novos administradores e complementar cadastro de tickers.
 - Navegacao separada por perfil: clientes nao veem administracao; administradores nao veem acoes, carteiras nem ajuste de carteira.
@@ -97,6 +97,7 @@ Pendente tecnico:
 Pendente funcional:
 
 - Ajustar carteiras conforme o backend evoluir.
+- Adicionar na administracao um botao para iniciar a busca de eventos corporativos candidatos em fontes gratuitas quando o backend expuser `POST /admin/eventos-corporativos/candidatos/coletar`; o resultado deve ser tratado como fila de revisao, nao como cadastro automatico definitivo.
 - Adicionar visualizacao detalhada de resultado por venda, caso necessario para o usuario final.
 
 Pendente de performance:

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { Carteira, CarteiraProjecao } from "../src/lib/api.ts";
-import { buildAjusteCarteirasPlano } from "../src/lib/carteira-ajuste-flow.ts";
+import { buildAjusteCarteirasPlano, toProjetarAjusteCarteiraPayload } from "../src/lib/carteira-ajuste-flow.ts";
 
 const wallets: Carteira[] = [
   {
@@ -35,7 +35,26 @@ function projection(
     saldoTotalProjetado: 0,
     valorProjetadoAlocado: 0,
     saldoResidualEstimado: 0,
-    ativos: [],
+    ativos: [
+      {
+        ticker: "VULC3",
+        percentual: 60,
+        cotacaoAtual: 16,
+        quantidadeAtual: 75,
+        quantidadeProjetada: 85,
+        valorProjetado: 1360,
+        novo: false,
+      },
+      {
+        ticker: "ITUB4",
+        percentual: 40,
+        cotacaoAtual: 40,
+        quantidadeAtual: 45,
+        quantidadeProjetada: 34,
+        valorProjetado: 1360,
+        novo: false,
+      },
+    ],
     compras,
     vendas,
     createdAt: "2026-05-07T00:00:00.000Z",
@@ -85,5 +104,19 @@ describe("buildAjusteCarteirasPlano", () => {
     assert.equal(plan.vendas.length, 1);
     assert.equal(plan.vendas[0].ticker, "ITUB4");
     assert.equal(plan.vendas[0].quantidade, 11);
+  });
+});
+
+describe("toProjetarAjusteCarteiraPayload", () => {
+  it("preserva saldo e composicao alvo para recalcular cotacoes atuais da base", () => {
+    const payload = toProjetarAjusteCarteiraPayload(projection("acoes", [], []));
+
+    assert.deepEqual(payload, {
+      saldoInformado: 0,
+      ativos: [
+        { ticker: "VULC3", percentual: 60 },
+        { ticker: "ITUB4", percentual: 40 },
+      ],
+    });
   });
 });

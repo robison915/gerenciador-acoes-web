@@ -16,6 +16,11 @@ import {
   listarProjecoesCarteira,
   projetarAjusteCarteira,
 } from "@/lib/api";
+import {
+  buildAjusteCarteirasPlano,
+  type AjusteCarteiraMovimentacao,
+  type AjusteCarteiraOperacaoReal,
+} from "@/lib/carteira-ajuste-flow";
 
 const currencyFormatter = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -52,6 +57,10 @@ function formatDate(value: string | null | undefined) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(date);
+}
+
+function formatCountLabel(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 function parseTargetAssets(input: string): ProjetarAjusteCarteiraAtivoPayload[] {
@@ -128,11 +137,115 @@ function ProjectionTable({
   );
 }
 
+function WalletAllocationList({ operation }: { operation: AjusteCarteiraOperacaoReal }) {
+  return (
+    <div className="space-y-1">
+      {operation.alocacoes.map((allocation) => (
+        <div key={`${operation.ticker}-${allocation.carteiraId}`} className="text-xs text-slate-600">
+          <span className="font-semibold text-slate-700">{allocation.carteiraNome}</span>:{" "}
+          {formatQuantity(allocation.quantidade)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RealOperationsTable({
+  title,
+  emptyText,
+  operations,
+  allocationTitle,
+}: {
+  title: string;
+  emptyText: string;
+  operations: AjusteCarteiraOperacaoReal[];
+  allocationTitle: string;
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <div className="border-b border-slate-200 px-4 py-3">
+        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+      </div>
+      {operations.length ? (
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-3">Ticker</th>
+                <th className="px-4 py-3">Quantidade</th>
+                <th className="px-4 py-3">Preco medio</th>
+                <th className="px-4 py-3">Total</th>
+                <th className="px-4 py-3">{allocationTitle}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {operations.map((operation) => (
+                <tr key={`${title}-${operation.ticker}`}>
+                  <td className="px-4 py-3 font-semibold text-slate-900">{operation.ticker}</td>
+                  <td className="px-4 py-3 text-slate-700">{formatQuantity(operation.quantidade)}</td>
+                  <td className="px-4 py-3 text-slate-700">{formatCurrency(operation.valorUnitarioMedio)}</td>
+                  <td className="px-4 py-3 text-slate-700">{formatCurrency(operation.valorTotal)}</td>
+                  <td className="px-4 py-3">
+                    <WalletAllocationList operation={operation} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="px-4 py-6 text-sm text-slate-500">{emptyText}</p>
+      )}
+    </div>
+  );
+}
+
+function InternalMovementsTable({ movements }: { movements: AjusteCarteiraMovimentacao[] }) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <div className="border-b border-slate-200 px-4 py-3">
+        <h3 className="text-sm font-semibold text-slate-900">Movimentacoes entre carteiras</h3>
+      </div>
+      {movements.length ? (
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-3">Ticker</th>
+                <th className="px-4 py-3">Quantidade</th>
+                <th className="px-4 py-3">Origem</th>
+                <th className="px-4 py-3">Destino</th>
+                <th className="px-4 py-3">Referencia</th>
+                <th className="px-4 py-3">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {movements.map((movement) => (
+                <tr key={`${movement.ticker}-${movement.carteiraOrigemId}-${movement.carteiraDestinoId}`}>
+                  <td className="px-4 py-3 font-semibold text-slate-900">{movement.ticker}</td>
+                  <td className="px-4 py-3 text-slate-700">{formatQuantity(movement.quantidade)}</td>
+                  <td className="px-4 py-3 text-slate-700">{movement.carteiraOrigemNome}</td>
+                  <td className="px-4 py-3 text-slate-700">{movement.carteiraDestinoNome}</td>
+                  <td className="px-4 py-3 text-slate-700">{formatCurrency(movement.valorUnitario)}</td>
+                  <td className="px-4 py-3 text-slate-700">{formatCurrency(movement.valorTotal)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="px-4 py-6 text-sm text-slate-500">Nenhuma movimentacao entre carteiras identificada.</p>
+      )}
+    </div>
+  );
+}
+
 export default function AjusteCarteiraPage() {
   const [wallets, setWallets] = useState<ListarCarteirasResponse | null>(null);
   const [selectedWalletId, setSelectedWalletId] = useState("");
   const [projections, setProjections] = useState<ListarCarteiraProjecoesResponse | null>(null);
   const [currentProjection, setCurrentProjection] = useState<CarteiraProjecao | null>(null);
+  const [latestProjectionsByWallet, setLatestProjectionsByWallet] = useState<Record<string, CarteiraProjecao | null>>({});
   const [saldoInformado, setSaldoInformado] = useState("0");
   const [targetAssetsText, setTargetAssetsText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -144,6 +257,43 @@ export default function AjusteCarteiraPage() {
     () => wallets?.items.find((wallet) => wallet.id === selectedWalletId) ?? null,
     [selectedWalletId, wallets],
   );
+
+  const latestProjections = useMemo(
+    () =>
+      wallets?.items
+        .map((wallet) => latestProjectionsByWallet[wallet.id])
+        .filter((projection): projection is CarteiraProjecao => Boolean(projection)) ?? [],
+    [latestProjectionsByWallet, wallets],
+  );
+
+  const optimizedPlan = useMemo(
+    () => buildAjusteCarteirasPlano(latestProjections, wallets?.items ?? []),
+    [latestProjections, wallets],
+  );
+
+  async function loadLatestProjectionsByWallet(walletItems: Carteira[]) {
+    if (walletItems.length === 0) {
+      setLatestProjectionsByWallet({});
+      return;
+    }
+
+    const results = await Promise.allSettled(
+      walletItems.map(async (wallet) => {
+        const walletProjections = await listarProjecoesCarteira(wallet.id);
+        return [wallet.id, walletProjections.items[0] ?? null] as const;
+      }),
+    );
+    const nextProjections: Record<string, CarteiraProjecao | null> = {};
+
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        const [walletId, projection] = result.value;
+        nextProjections[walletId] = projection;
+      }
+    }
+
+    setLatestProjectionsByWallet(nextProjections);
+  }
 
   async function loadWallets() {
     setIsLoading(true);
@@ -162,6 +312,7 @@ export default function AjusteCarteiraPage() {
         setProjections(null);
         setCurrentProjection(null);
       }
+      await loadLatestProjectionsByWallet(data.items);
     } catch (err) {
       const apiError = err as ApiError;
       setError(apiError.message);
@@ -226,6 +377,7 @@ export default function AjusteCarteiraPage() {
       });
       setCurrentProjection(projection);
       await loadProjections(selectedWalletId);
+      await loadLatestProjectionsByWallet(wallets?.items ?? []);
       setNotice("Projecao de ajuste criada.");
     } catch (err) {
       const message = err instanceof Error ? err.message : (err as ApiError).message;
@@ -249,6 +401,7 @@ export default function AjusteCarteiraPage() {
       await excluirProjecaoCarteira(projection.carteiraId, projection.id);
       setNotice("Projecao excluida.");
       await loadProjections(projection.carteiraId);
+      await loadLatestProjectionsByWallet(wallets?.items ?? []);
     } catch (err) {
       const apiError = err as ApiError;
       setError(apiError.message);
@@ -371,6 +524,70 @@ export default function AjusteCarteiraPage() {
               </p>
             )}
           </section>
+
+          {latestProjections.length ? (
+            <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Plano otimizado entre carteiras</h2>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Ultimas projecoes consolidadas para separar movimentacoes internas das ordens na corretora.
+                  </p>
+                </div>
+                <span className="w-fit rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                  {formatCountLabel(latestProjections.length, "carteira com projecao", "carteiras com projecao")}
+                </span>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Movimentar</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-900">
+                    {formatQuantity(optimizedPlan.quantidadeMovimentada)}
+                  </p>
+                  <p className="text-xs text-slate-500">{formatCurrency(optimizedPlan.valorMovimentado)}</p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Comprar</p>
+                  <p className="mt-2 text-lg font-semibold text-emerald-700">
+                    {formatQuantity(optimizedPlan.quantidadeCompras)}
+                  </p>
+                  <p className="text-xs text-slate-500">{formatCurrency(optimizedPlan.valorCompras)}</p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Vender</p>
+                  <p className="mt-2 text-lg font-semibold text-red-700">{formatQuantity(optimizedPlan.quantidadeVendas)}</p>
+                  <p className="text-xs text-slate-500">{formatCurrency(optimizedPlan.valorVendas)}</p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ordens reais</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-900">
+                    {optimizedPlan.compras.length + optimizedPlan.vendas.length}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {formatCountLabel(optimizedPlan.movimentacoes.length, "movimentacao", "movimentacoes")}
+                  </p>
+                </div>
+              </div>
+
+              <InternalMovementsTable movements={optimizedPlan.movimentacoes} />
+
+              <section className="grid gap-4 lg:grid-cols-2">
+                <RealOperationsTable
+                  title="Compras reais"
+                  emptyText="Nenhuma compra real apos compensar movimentacoes."
+                  operations={optimizedPlan.compras}
+                  allocationTitle="Destino"
+                />
+                <RealOperationsTable
+                  title="Vendas reais"
+                  emptyText="Nenhuma venda real apos compensar movimentacoes."
+                  operations={optimizedPlan.vendas}
+                  allocationTitle="Origem"
+                />
+              </section>
+            </section>
+          ) : null}
 
           {currentProjection ? (
             <>

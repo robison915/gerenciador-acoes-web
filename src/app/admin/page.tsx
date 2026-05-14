@@ -4,18 +4,24 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell, LoadingPanel, ProgressLog } from "@/components/layout/AppShell";
 import {
+  aprovarEventoCorporativoCandidato,
+  coletarEventosCorporativosCandidatos,
   createAdminUser,
   createEventoCorporativo,
+  descartarEventoCorporativoCandidato,
   getMe,
   listExecucoesEventoCorporativo,
   listEventosCorporativos,
+  listEventosCorporativosCandidatos,
   processarEventoCorporativo,
   processarEventosCorporativos,
   updateEventoCorporativo,
   updateTickerCadastro,
 } from "@/lib/api";
-import type { ApiError, EventoCorporativo, EventoCorporativoExecucao } from "@/lib/api";
+import type { ApiError, EventoCorporativo, EventoCorporativoCandidato, EventoCorporativoExecucao } from "@/lib/api";
 import {
+  candidatoToEventForm,
+  candidateConfidenceLabel,
   eventTypeLabel,
   importStatusClass,
   importStatusLabel,
@@ -45,6 +51,14 @@ type ImportPreviewItem = EventoCorporativoImportItem & {
   message?: string;
 };
 
+type CandidateCollectionSummary = {
+  totalFontes: number;
+  totalDocumentos: number;
+  totalCandidatosEncontrados: number;
+  candidatosCriados: number;
+  candidatosIgnorados: number;
+};
+
 function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -63,11 +77,22 @@ function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(date);
 }
 
+function candidateConfidenceClass(confianca: EventoCorporativoCandidato["confianca"]) {
+  const classes: Record<EventoCorporativoCandidato["confianca"], string> = {
+    BAIXA: "bg-amber-50 text-amber-700",
+    MEDIA: "bg-blue-50 text-blue-700",
+    ALTA: "bg-emerald-50 text-emerald-700",
+  };
+
+  return classes[confianca];
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const [events, setEvents] = useState<EventoCorporativo[]>([]);
   const [eventForm, setEventForm] = useState<EventForm>(defaultEventForm);
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [reviewingCandidateId, setReviewingCandidateId] = useState<string | null>(null);
   const [selectedExecutionsEventId, setSelectedExecutionsEventId] = useState<string | null>(null);
   const [eventExecutions, setEventExecutions] = useState<EventoCorporativoExecucao[]>([]);
   const [tickerForm, setTickerForm] = useState({ ticker: "", nomeEmpresa: "" });
@@ -75,12 +100,16 @@ export default function AdminPage() {
   const [importRows, setImportRows] = useState<ImportPreviewItem[]>([]);
   const [ignoredImportRows, setIgnoredImportRows] = useState(0);
   const [importLog, setImportLog] = useState<string[]>([]);
+  const [candidateRows, setCandidateRows] = useState<EventoCorporativoCandidato[]>([]);
+  const [candidateSummary, setCandidateSummary] = useState<CandidateCollectionSummary | null>(null);
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isParsingImport, setIsParsingImport] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isCollectingCandidates, setIsCollectingCandidates] = useState(false);
+  const [candidateActionId, setCandidateActionId] = useState<string | null>(null);
   const [isProcessingEvents, setIsProcessingEvents] = useState(false);
   const [processingEventId, setProcessingEventId] = useState<string | null>(null);
   const [isLoadingExecutions, setIsLoadingExecutions] = useState(false);
@@ -101,8 +130,12 @@ export default function AdminPage() {
         return;
       }
 
-      const result = await listEventosCorporativos();
-      setEvents(result.items);
+      const [eventosResult, candidatosResult] = await Promise.all([
+        listEventosCorporativos(),
+        listEventosCorporativosCandidatos(),
+      ]);
+      setEvents(eventosResult.items);
+      setCandidateRows(candidatosResult.items);
     } catch (err) {
       const apiError = err as ApiError;
       if (apiError.status === 401 || apiError.status === 403) {
@@ -130,11 +163,15 @@ export default function AdminPage() {
       if (editingEventId) {
         await updateEventoCorporativo(editingEventId, payload);
         setNotice(`Evento de ${payload.ticker} atualizado.`);
+      } else if (reviewingCandidateId) {
+        await aprovarEventoCorporativoCandidato(reviewingCandidateId, payload);
+        setNotice(`Candidato de ${payload.ticker} aprovado e cadastrado como evento.`);
       } else {
         await createEventoCorporativo(payload);
         setNotice(`Evento de ${payload.ticker} cadastrado.`);
       }
       setEditingEventId(null);
+      setReviewingCandidateId(null);
       setEventForm(defaultEventForm);
       await loadAdminData();
     } catch (err) {
@@ -147,6 +184,7 @@ export default function AdminPage() {
 
   function handleEditEvent(event: EventoCorporativo) {
     setEditingEventId(event.id);
+    setReviewingCandidateId(null);
     setEventForm(toEventForm(event));
     setNotice(null);
     setError(null);
@@ -154,6 +192,7 @@ export default function AdminPage() {
 
   function handleCancelEditEvent() {
     setEditingEventId(null);
+    setReviewingCandidateId(null);
     setEventForm(defaultEventForm);
     setNotice(null);
     setError(null);
@@ -262,6 +301,63 @@ export default function AdminPage() {
       `Concluido: ${importedCount} eventos importados${errorCount ? `, ${errorCount} com erro` : ""}.`,
     ]);
     setNotice(`${importedCount} eventos importados${errorCount ? `, ${errorCount} com erro` : ""}.`);
+  }
+
+  async function handleCollectCandidates() {
+    setIsCollectingCandidates(true);
+    setNotice(null);
+    setError(null);
+
+    try {
+      const result = await coletarEventosCorporativosCandidatos();
+      const candidatosResult = await listEventosCorporativosCandidatos();
+      setCandidateRows(candidatosResult.items);
+      setCandidateSummary({
+        totalFontes: result.totalFontes,
+        totalDocumentos: result.totalDocumentos,
+        totalCandidatosEncontrados: result.totalCandidatosEncontrados,
+        candidatosCriados: result.candidatosCriados,
+        candidatosIgnorados: result.candidatosIgnorados,
+      });
+      setNotice(
+        `Coleta concluida: ${result.candidatosCriados} candidatos novos e ${result.candidatosIgnorados} ja existentes.`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : (err as ApiError).message;
+      setError(message);
+    } finally {
+      setIsCollectingCandidates(false);
+    }
+  }
+
+  function handleReviewCandidate(candidato: EventoCorporativoCandidato) {
+    setEditingEventId(null);
+    setReviewingCandidateId(candidato.id);
+    setEventForm(candidatoToEventForm(candidato));
+    setNotice(`Revise os dados do candidato de ${candidato.ticker} antes de cadastrar o evento.`);
+    setError(null);
+  }
+
+  async function handleDiscardCandidate(candidato: EventoCorporativoCandidato) {
+    setCandidateActionId(candidato.id);
+    setNotice(null);
+    setError(null);
+
+    try {
+      await descartarEventoCorporativoCandidato(candidato.id);
+      if (reviewingCandidateId === candidato.id) {
+        setReviewingCandidateId(null);
+        setEventForm(defaultEventForm);
+      }
+      const result = await listEventosCorporativosCandidatos();
+      setCandidateRows(result.items);
+      setNotice(`Candidato de ${candidato.ticker} descartado.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : (err as ApiError).message;
+      setError(message);
+    } finally {
+      setCandidateActionId(null);
+    }
   }
 
   async function handleProcessEvents() {
@@ -472,6 +568,121 @@ export default function AdminPage() {
             </article>
 
             <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex flex-col gap-1">
+                <h2 className="text-lg font-semibold text-slate-900">Candidatos de eventos</h2>
+                <p className="text-sm text-slate-600">
+                  Colete possiveis eventos em fontes abertas e revise cada item antes de cadastrar.
+                </p>
+              </div>
+
+              <div className="mt-5 space-y-4">
+                <button
+                  type="button"
+                  disabled={isCollectingCandidates || isImporting || isParsingImport}
+                  onClick={() => void handleCollectCandidates()}
+                  className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-70"
+                >
+                  {isCollectingCandidates ? "Coletando..." : "Buscar candidatos"}
+                </button>
+
+                {candidateSummary ? (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <span>Fontes: {candidateSummary.totalFontes}</span>
+                      <span>Documentos: {candidateSummary.totalDocumentos}</span>
+                      <span>Encontrados: {candidateSummary.totalCandidatosEncontrados}</span>
+                      <span>Novos: {candidateSummary.candidatosCriados}</span>
+                      <span>Ja existentes: {candidateSummary.candidatosIgnorados}</span>
+                      <span>
+                        Para revisar: {candidateRows.filter((candidate) => candidate.status === "PENDENTE").length}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
+
+                {candidateRows.length === 0 ? (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                    Nenhum candidato coletado para revisao.
+                  </div>
+                ) : null}
+
+                {candidateRows.length ? (
+                  <div className="max-h-80 overflow-auto rounded-md border border-slate-200">
+                    <table className="min-w-full divide-y divide-slate-200 text-sm">
+                      <thead className="sticky top-0 bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2">Data</th>
+                          <th className="px-3 py-2">Ticker</th>
+                          <th className="px-3 py-2">Tipo</th>
+                          <th className="px-3 py-2">Fonte</th>
+                          <th className="px-3 py-2">Confianca</th>
+                          <th className="px-3 py-2">Status</th>
+                          <th className="px-3 py-2">Acao</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {candidateRows.map((candidate) => (
+                          <tr key={candidate.id}>
+                            <td className="px-3 py-2 font-medium text-slate-900">
+                              {candidate.dataEvento ? formatDate(candidate.dataEvento) : "-"}
+                            </td>
+                            <td className="px-3 py-2">
+                              {candidate.tickerDestino
+                                ? `${candidate.ticker} -> ${candidate.tickerDestino}`
+                                : candidate.ticker}
+                            </td>
+                            <td className="px-3 py-2">{eventTypeLabel(candidate.tipo)}</td>
+                            <td className="max-w-44 truncate px-3 py-2" title={candidate.titulo}>
+                              {candidate.fonte}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span
+                                className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${candidateConfidenceClass(
+                                  candidate.confianca,
+                                )}`}
+                              >
+                                {candidateConfidenceLabel(candidate.confianca)}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">
+                                {candidate.status === "PENDENTE"
+                                  ? "Pendente"
+                                  : candidate.status === "APROVADO"
+                                    ? "Aprovado"
+                                    : "Descartado"}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  disabled={candidate.status !== "PENDENTE" || candidateActionId === candidate.id}
+                                  onClick={() => handleReviewCandidate(candidate)}
+                                  className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100 disabled:opacity-60"
+                                >
+                                  Revisar
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={candidate.status !== "PENDENTE" || candidateActionId === candidate.id}
+                                  onClick={() => void handleDiscardCandidate(candidate)}
+                                  className="rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+                                >
+                                  {candidateActionId === candidate.id ? "Salvando..." : "Descartar"}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+              </div>
+            </article>
+
+            <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
               <h2 className="text-lg font-semibold text-slate-900">Processamento</h2>
               <div className="mt-4 space-y-3">
                 <button
@@ -489,13 +700,21 @@ export default function AdminPage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-semibold text-slate-900">
-                    {editingEventId ? "Editar evento corporativo" : "Evento corporativo"}
+                    {editingEventId
+                      ? "Editar evento corporativo"
+                      : reviewingCandidateId
+                        ? "Revisar candidato"
+                        : "Evento corporativo"}
                   </h2>
                   {editingEventId ? (
                     <p className="mt-1 text-sm text-slate-600">Atualize os dados do evento selecionado.</p>
+                  ) : reviewingCandidateId ? (
+                    <p className="mt-1 text-sm text-slate-600">
+                      Confirme os dados antes de aprovar e cadastrar o evento definitivo.
+                    </p>
                   ) : null}
                 </div>
-                {editingEventId ? (
+                {editingEventId || reviewingCandidateId ? (
                   <button
                     type="button"
                     onClick={handleCancelEditEvent}
@@ -597,7 +816,13 @@ export default function AdminPage() {
                   disabled={isSubmitting}
                   className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-70"
                 >
-                  {isSubmitting ? "Salvando..." : editingEventId ? "Atualizar evento" : "Cadastrar evento"}
+                  {isSubmitting
+                    ? "Salvando..."
+                    : editingEventId
+                      ? "Atualizar evento"
+                      : reviewingCandidateId
+                        ? "Aprovar candidato"
+                        : "Cadastrar evento"}
                 </button>
               </form>
             </article>

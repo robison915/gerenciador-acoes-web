@@ -81,6 +81,7 @@ Implementado:
 - Tela administrativa para cadastrar e editar eventos corporativos, incluindo alteracao e cancelamento de ticker, importar eventos por XLSX, criar novos administradores e complementar cadastro de tickers.
 - Navegacao separada por perfil: clientes nao veem administracao; administradores nao veem acoes, carteiras nem ajuste de carteira.
 - Tela administrativa permite aplicar eventos corporativos cadastrados na base existente, processar evento individual e consultar auditoria de execucoes.
+- Tela administrativa permite iniciar busca de eventos corporativos candidatos em fontes gratuitas, listar a fila persistente, revisar, aprovar e descartar candidatos antes de cadastra-los como eventos definitivos.
 - Importacao de negociacoes da B3 usa o backend para normalizar tickers conforme eventos de alteracao cadastrados, revisar itens importados e vincular automaticamente operacoes por projecoes salvas quando nao houver conflito.
 - Importacao B3 antecipa conflitos quando o mesmo ticker aparece na ultima projecao ativa de mais de uma carteira, destaca as linhas afetadas e exige escolha manual antes de registrar.
 - Historico de operacoes na tela de acoes consumindo paginacao `limit`/`offset` do backend, com navegacao de pagina e carregamento proprio.
@@ -97,7 +98,6 @@ Pendente tecnico:
 Pendente funcional:
 
 - Ajustar carteiras conforme o backend evoluir.
-- Adicionar na administracao um botao para iniciar a busca de eventos corporativos candidatos em fontes gratuitas quando o backend expuser `POST /admin/eventos-corporativos/candidatos/coletar`; o resultado deve ser tratado como fila de revisao, nao como cadastro automatico definitivo.
 - Adicionar visualizacao detalhada de resultado por venda, caso necessario para o usuario final.
 
 Pendente de performance:
@@ -132,6 +132,10 @@ Disponiveis no backend atual:
 - `PATCH /admin/eventos-corporativos/:eventoId`
 - `POST /admin/eventos-corporativos/:eventoId/processar`
 - `GET /admin/eventos-corporativos/:eventoId/execucoes`
+- `POST /admin/eventos-corporativos/candidatos/coletar`
+- `GET /admin/eventos-corporativos/candidatos`
+- `POST /admin/eventos-corporativos/candidatos/:candidatoId/aprovar`
+- `PATCH /admin/eventos-corporativos/candidatos/:candidatoId/descartar`
 - `PATCH /admin/acoes/tickers/:ticker`
 - `POST /admin/usuarios/admins`
 - `POST /carteiras`

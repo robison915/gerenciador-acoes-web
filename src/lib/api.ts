@@ -253,9 +253,46 @@ export type EventoCorporativo = {
   updatedAt: string;
 };
 
+export type EventoCorporativoCandidato = {
+  id: string;
+  ticker: string;
+  tickerDestino: string | null;
+  tipo: EventoCorporativo["tipo"];
+  dataEvento: string | null;
+  fatorQuantidade: number | null;
+  fatorPreco: number | null;
+  fonte: string;
+  urlFonte: string;
+  titulo: string;
+  trecho: string;
+  confianca: "BAIXA" | "MEDIA" | "ALTA";
+  status: "PENDENTE" | "APROVADO" | "DESCARTADO";
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ListarEventosCorporativosResponse = {
   items: EventoCorporativo[];
   totalEventos: number;
+};
+
+export type ColetarEventosCorporativosCandidatosResponse = {
+  totalFontes: number;
+  totalDocumentos: number;
+  totalCandidatosEncontrados: number;
+  candidatosCriados: number;
+  candidatosIgnorados: number;
+  items: EventoCorporativoCandidato[];
+};
+
+export type ListarEventosCorporativosCandidatosResponse = {
+  items: EventoCorporativoCandidato[];
+  totalCandidatos: number;
+};
+
+export type AprovarEventoCorporativoCandidatoResponse = {
+  candidato: EventoCorporativoCandidato;
+  evento: EventoCorporativo;
 };
 
 export type ProcessarEventosCorporativosResponse = {
@@ -628,6 +665,44 @@ export function listExecucoesEventoCorporativo(eventoId: string) {
     `/admin/eventos-corporativos/${encodeURIComponent(eventoId)}/execucoes`,
     {
       method: "GET",
+      withAuth: true,
+    },
+  );
+}
+
+export function listEventosCorporativosCandidatos() {
+  return apiRequest<ListarEventosCorporativosCandidatosResponse>("/admin/eventos-corporativos/candidatos", {
+    method: "GET",
+    withAuth: true,
+  });
+}
+
+export function coletarEventosCorporativosCandidatos() {
+  return apiRequest<ColetarEventosCorporativosCandidatosResponse>(
+    "/admin/eventos-corporativos/candidatos/coletar",
+    {
+      method: "POST",
+      withAuth: true,
+    },
+  );
+}
+
+export function aprovarEventoCorporativoCandidato(candidatoId: string, payload: EventoCorporativoPayload) {
+  return apiRequest<AprovarEventoCorporativoCandidatoResponse>(
+    `/admin/eventos-corporativos/candidatos/${encodeURIComponent(candidatoId)}/aprovar`,
+    {
+      method: "POST",
+      body: payload,
+      withAuth: true,
+    },
+  );
+}
+
+export function descartarEventoCorporativoCandidato(candidatoId: string) {
+  return apiRequest<EventoCorporativoCandidato>(
+    `/admin/eventos-corporativos/candidatos/${encodeURIComponent(candidatoId)}/descartar`,
+    {
+      method: "PATCH",
       withAuth: true,
     },
   );

@@ -10,15 +10,25 @@ import {
   createEventoCorporativo,
   descartarEventoCorporativoCandidato,
   getMe,
+  listCoberturasEventosCorporativos,
   listExecucoesEventoCorporativo,
   listEventosCorporativos,
   listEventosCorporativosCandidatos,
+  listPendenciasCoberturaImportacoesB3,
   processarEventoCorporativo,
   processarEventosCorporativos,
   updateEventoCorporativo,
   updateTickerCadastro,
+  validarCoberturaEventosCorporativos,
 } from "@/lib/api";
-import type { ApiError, EventoCorporativo, EventoCorporativoCandidato, EventoCorporativoExecucao } from "@/lib/api";
+import type {
+  ApiError,
+  CoberturaEventosCorporativos,
+  EventoCorporativo,
+  EventoCorporativoCandidato,
+  EventoCorporativoExecucao,
+  PendenciaCoberturaImportacaoB3,
+} from "@/lib/api";
 import {
   candidatoToEventForm,
   candidateConfidenceLabel,
@@ -101,6 +111,14 @@ export default function AdminPage() {
   const [ignoredImportRows, setIgnoredImportRows] = useState(0);
   const [importLog, setImportLog] = useState<string[]>([]);
   const [candidateRows, setCandidateRows] = useState<EventoCorporativoCandidato[]>([]);
+  const [coverageRows, setCoverageRows] = useState<CoberturaEventosCorporativos[]>([]);
+  const [pendingCoverageRows, setPendingCoverageRows] = useState<PendenciaCoberturaImportacaoB3[]>([]);
+  const [coverageForm, setCoverageForm] = useState({
+    ticker: "",
+    dataInicio: "",
+    dataFim: "",
+    observacao: "",
+  });
   const [candidateSummary, setCandidateSummary] = useState<CandidateCollectionSummary | null>(null);
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
@@ -130,12 +148,16 @@ export default function AdminPage() {
         return;
       }
 
-      const [eventosResult, candidatosResult] = await Promise.all([
+      const [eventosResult, candidatosResult, coberturasResult, pendenciasCoberturaResult] = await Promise.all([
         listEventosCorporativos(),
         listEventosCorporativosCandidatos(),
+        listCoberturasEventosCorporativos(),
+        listPendenciasCoberturaImportacoesB3(),
       ]);
       setEvents(eventosResult.items);
       setCandidateRows(candidatosResult.items);
+      setCoverageRows(coberturasResult.items);
+      setPendingCoverageRows(pendenciasCoberturaResult.items);
     } catch (err) {
       const apiError = err as ApiError;
       if (apiError.status === 401 || apiError.status === 403) {
@@ -469,6 +491,52 @@ export default function AdminPage() {
     }
   }
 
+  async function handleValidateCoverage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setNotice(null);
+    setError(null);
+
+    try {
+      const cobertura = await validarCoberturaEventosCorporativos({
+        ticker: coverageForm.ticker,
+        dataInicio: coverageForm.dataInicio,
+        dataFim: coverageForm.dataFim,
+        observacao: coverageForm.observacao || undefined,
+      });
+      setNotice(`Cobertura de ${cobertura.ticker} validada.`);
+      setCoverageForm({ ticker: "", dataInicio: "", dataFim: "", observacao: "" });
+      await loadAdminData();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : (err as ApiError).message;
+      setError(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleValidatePendingCoverage(pending: PendenciaCoberturaImportacaoB3) {
+    setIsSubmitting(true);
+    setNotice(null);
+    setError(null);
+
+    try {
+      const cobertura = await validarCoberturaEventosCorporativos({
+        ticker: pending.ticker,
+        dataInicio: pending.dataInicio,
+        dataFim: pending.dataFim,
+        observacao: "Cobertura liberada a partir da fila de importacoes B3.",
+      });
+      setNotice(`Cobertura de ${cobertura.ticker} validada para a importacao B3.`);
+      await loadAdminData();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : (err as ApiError).message;
+      setError(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <AppShell title="Administracao" subtitle="Gerencie eventos corporativos e acessos administrativos.">
       {notice ? <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{notice}</p> : null}
@@ -680,6 +748,136 @@ export default function AdminPage() {
                   </div>
                 ) : null}
               </div>
+            </article>
+
+            <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-semibold text-slate-900">Cobertura para importacao B3</h2>
+              {pendingCoverageRows.length ? (
+                <div className="mt-5 max-h-72 overflow-auto rounded-md border border-amber-200">
+                  <table className="min-w-full divide-y divide-amber-100 text-sm">
+                    <thead className="sticky top-0 bg-amber-50 text-left text-xs font-semibold uppercase text-amber-800">
+                      <tr>
+                        <th className="px-3 py-2">Ticker</th>
+                        <th className="px-3 py-2">Periodo</th>
+                        <th className="px-3 py-2">Importacoes</th>
+                        <th className="px-3 py-2">Acao</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-amber-100 bg-white">
+                      {pendingCoverageRows.map((pending) => (
+                        <tr key={`${pending.ticker}-${pending.dataInicio}-${pending.dataFim}`}>
+                          <td className="px-3 py-2 font-semibold text-slate-900">{pending.ticker}</td>
+                          <td className="px-3 py-2">
+                            {formatDate(pending.dataInicio)} a {formatDate(pending.dataFim)}
+                          </td>
+                          <td className="px-3 py-2">{pending.totalImportacoes}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={isCollectingCandidates}
+                                onClick={() => void handleCollectCandidates()}
+                                className="rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+                              >
+                                {isCollectingCandidates ? "Buscando..." : "Buscar eventos"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isSubmitting}
+                                onClick={() => void handleValidatePendingCoverage(pending)}
+                                className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100 disabled:opacity-60"
+                              >
+                                {isSubmitting ? "Validando..." : "Validar"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="mt-5 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  Nenhuma importacao B3 aguarda cobertura.
+                </div>
+              )}
+              <form className="mt-5 space-y-4" onSubmit={handleValidateCoverage}>
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-sm font-semibold text-slate-800">Ticker</span>
+                  <input
+                    value={coverageForm.ticker}
+                    onChange={(event) => setCoverageForm((current) => ({ ...current, ticker: event.target.value }))}
+                    placeholder="PETR4"
+                    className="rounded-md border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+                  />
+                </label>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-sm font-semibold text-slate-800">Inicio</span>
+                    <input
+                      type="date"
+                      value={coverageForm.dataInicio}
+                      onChange={(event) =>
+                        setCoverageForm((current) => ({ ...current, dataInicio: event.target.value }))
+                      }
+                      className="rounded-md border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-sm font-semibold text-slate-800">Fim</span>
+                    <input
+                      type="date"
+                      value={coverageForm.dataFim}
+                      onChange={(event) =>
+                        setCoverageForm((current) => ({ ...current, dataFim: event.target.value }))
+                      }
+                      className="rounded-md border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+                    />
+                  </label>
+                </div>
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-sm font-semibold text-slate-800">Observacao</span>
+                  <textarea
+                    value={coverageForm.observacao}
+                    onChange={(event) =>
+                      setCoverageForm((current) => ({ ...current, observacao: event.target.value }))
+                    }
+                    className="min-h-20 rounded-md border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full rounded-md border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-800 transition hover:bg-blue-100 disabled:opacity-70"
+                >
+                  {isSubmitting ? "Validando..." : "Validar cobertura"}
+                </button>
+              </form>
+
+              {coverageRows.length ? (
+                <div className="mt-5 max-h-56 overflow-auto rounded-md border border-slate-200">
+                  <table className="min-w-full divide-y divide-slate-200 text-sm">
+                    <thead className="sticky top-0 bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2">Ticker</th>
+                        <th className="px-3 py-2">Periodo</th>
+                        <th className="px-3 py-2">Fonte</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {coverageRows.map((coverage) => (
+                        <tr key={coverage.id}>
+                          <td className="px-3 py-2 font-semibold text-slate-900">{coverage.ticker}</td>
+                          <td className="px-3 py-2">
+                            {formatDate(coverage.dataInicio)} a {formatDate(coverage.dataFim)}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600">{coverage.fonte}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
             </article>
 
             <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">

@@ -228,6 +228,12 @@ export type ImportacaoB3 = {
   totalVendas: number;
   totalErros: number;
   itens: ImportacaoB3Item[];
+  eventosCorporativosCobertos: boolean;
+  eventosCorporativosPendentes: Array<{
+    ticker: string;
+    dataInicio: string;
+    dataFim: string;
+  }>;
   createdAt: string;
   updatedAt: string;
 };
@@ -288,6 +294,44 @@ export type ColetarEventosCorporativosCandidatosResponse = {
 export type ListarEventosCorporativosCandidatosResponse = {
   items: EventoCorporativoCandidato[];
   totalCandidatos: number;
+};
+
+export type CoberturaEventosCorporativos = {
+  id: string;
+  ticker: string;
+  dataInicio: string;
+  dataFim: string;
+  status: "VALIDADA";
+  fonte: string;
+  observacao: string | null;
+  verificadoEm: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ListarCoberturasEventosCorporativosResponse = {
+  items: CoberturaEventosCorporativos[];
+  totalCoberturas: number;
+};
+
+export type PendenciaCoberturaImportacaoB3 = {
+  ticker: string;
+  dataInicio: string;
+  dataFim: string;
+  totalImportacoes: number;
+};
+
+export type ListarPendenciasCoberturaImportacoesB3Response = {
+  items: PendenciaCoberturaImportacaoB3[];
+  totalPendencias: number;
+};
+
+export type ValidarCoberturaEventosCorporativosPayload = {
+  ticker: string;
+  dataInicio: string;
+  dataFim: string;
+  fonte?: string;
+  observacao?: string;
 };
 
 export type AprovarEventoCorporativoCandidatoResponse = {
@@ -673,6 +717,31 @@ export function listExecucoesEventoCorporativo(eventoId: string) {
 export function listEventosCorporativosCandidatos() {
   return apiRequest<ListarEventosCorporativosCandidatosResponse>("/admin/eventos-corporativos/candidatos", {
     method: "GET",
+    withAuth: true,
+  });
+}
+
+export function listCoberturasEventosCorporativos() {
+  return apiRequest<ListarCoberturasEventosCorporativosResponse>("/admin/eventos-corporativos/coberturas", {
+    method: "GET",
+    withAuth: true,
+  });
+}
+
+export function listPendenciasCoberturaImportacoesB3() {
+  return apiRequest<ListarPendenciasCoberturaImportacoesB3Response>(
+    "/admin/eventos-corporativos/coberturas/pendentes-importacoes-b3",
+    {
+      method: "GET",
+      withAuth: true,
+    },
+  );
+}
+
+export function validarCoberturaEventosCorporativos(payload: ValidarCoberturaEventosCorporativosPayload) {
+  return apiRequest<CoberturaEventosCorporativos>("/admin/eventos-corporativos/coberturas", {
+    method: "POST",
+    body: payload,
     withAuth: true,
   });
 }

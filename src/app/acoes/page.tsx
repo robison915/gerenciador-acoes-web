@@ -404,7 +404,9 @@ export default function AcoesPage() {
         `${imported.totalLinhas} operacoes encontradas: ${imported.totalCompras} compras e ${imported.totalVendas} vendas.`,
         imported.totalErros > 0
           ? `${imported.totalErros} itens precisam de correcao antes da distribuicao.`
-          : "Revisao pronta para distribuicao.",
+          : imported.eventosCorporativosCobertos
+            ? "Revisao pronta para distribuicao."
+            : `${imported.eventosCorporativosPendentes.length} cobertura(s) de eventos corporativos aguardam validacao administrativa.`,
       ]);
     } catch (err) {
       const message = err instanceof Error ? err.message : (err as ApiError).message;
@@ -426,6 +428,10 @@ export default function AcoesPage() {
     }
     if (b3Import.totalErros > 0) {
       setError("Corrija os itens invalidos antes de distribuir a importacao.");
+      return;
+    }
+    if (!b3Import.eventosCorporativosCobertos) {
+      setError("A cobertura de eventos corporativos da importacao precisa ser validada antes da distribuicao.");
       return;
     }
     if (b3Import.status === "DISTRIBUIDA") {
@@ -638,6 +644,16 @@ export default function AcoesPage() {
                     </p>
                     {b3Import.totalErros > 0 ? (
                       <p className="mt-2 text-red-700">{b3Import.totalErros} itens contem erro e impedem a distribuicao.</p>
+                    ) : null}
+                    {!b3Import.eventosCorporativosCobertos ? (
+                      <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
+                        <p className="font-semibold">Eventos corporativos pendentes de validacao.</p>
+                        <p className="mt-1">
+                          {b3Import.eventosCorporativosPendentes
+                            .map((item) => `${item.ticker} (${formatDate(item.dataInicio)} a ${formatDate(item.dataFim)})`)
+                            .join(", ")}
+                        </p>
+                      </div>
                     ) : null}
                     {isLoadingB3ProjectionHints ? (
                       <p className="mt-2 text-slate-600">Conferindo projeções de carteiras para sugerir a distribuição...</p>

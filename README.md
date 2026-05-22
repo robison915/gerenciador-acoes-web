@@ -75,13 +75,14 @@ Implementado:
 - Visao geral autenticada.
 - Painel operacional de acoes usando endpoints reais do backend.
 - Importacao de arquivo XLSX de negociacao da B3 pela area de acoes usando o fluxo backend de revisao, distribuicao entre carteiras e persistencia.
+- Revisao da importacao B3 destaca coberturas pendentes de eventos corporativos por ticker/periodo e impede a distribuicao enquanto a administracao nao validar esses periodos.
 - Tela operacional de carteiras usando endpoints reais do backend para criacao, listagem, detalhe, exclusao, vinculacao de acoes avulsas, remocao para avulsas, movimentacao entre carteiras e performance por carteira.
 - Tela de ajuste de carteira para salvar e atualizar projecoes de rebalanceamento com as cotacoes atuais persistidas no backend, usando pesos iguais por padrao quando percentuais nao forem informados e exibindo vendas somente para ativos removidos da composicao alvo.
 - Plano otimizado na tela de ajuste de carteira, consolidando as ultimas projecoes de todas as carteiras para separar movimentacoes internas de compras e vendas reais na corretora.
 - Tela administrativa para cadastrar e editar eventos corporativos, incluindo alteracao e cancelamento de ticker, importar eventos por XLSX, criar novos administradores e complementar cadastro de tickers.
 - Navegacao separada por perfil: clientes nao veem administracao; administradores nao veem acoes, carteiras nem ajuste de carteira.
 - Tela administrativa permite aplicar eventos corporativos cadastrados na base existente, processar evento individual e consultar auditoria de execucoes.
-- Tela administrativa permite iniciar busca de eventos corporativos candidatos em fontes gratuitas, listar a fila persistente, revisar, aprovar e descartar candidatos antes de cadastra-los como eventos definitivos.
+- Tela administrativa permite iniciar busca de eventos corporativos candidatos em fontes gratuitas, listar a fila persistente, revisar, aprovar e descartar candidatos antes de cadastra-los como eventos definitivos, alem de listar as coberturas exigidas por importacoes B3 em revisao e valida-las por ticker/periodo.
 - Importacao de negociacoes da B3 usa o backend para normalizar tickers conforme eventos de alteracao cadastrados, revisar itens importados e vincular automaticamente operacoes por projecoes salvas quando nao houver conflito.
 - Importacao B3 antecipa conflitos quando o mesmo ticker aparece na ultima projecao ativa de mais de uma carteira, destaca as linhas afetadas e exige escolha manual antes de registrar.
 - Historico de operacoes na tela de acoes consumindo paginacao `limit`/`offset` do backend, com navegacao de pagina e carregamento proprio.
@@ -136,6 +137,9 @@ Disponiveis no backend atual:
 - `GET /admin/eventos-corporativos/candidatos`
 - `POST /admin/eventos-corporativos/candidatos/:candidatoId/aprovar`
 - `PATCH /admin/eventos-corporativos/candidatos/:candidatoId/descartar`
+- `GET /admin/eventos-corporativos/coberturas`
+- `GET /admin/eventos-corporativos/coberturas/pendentes-importacoes-b3`
+- `POST /admin/eventos-corporativos/coberturas`
 - `PATCH /admin/acoes/tickers/:ticker`
 - `POST /admin/usuarios/admins`
 - `POST /carteiras`

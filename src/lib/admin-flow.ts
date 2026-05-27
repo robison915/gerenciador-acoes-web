@@ -1,4 +1,4 @@
-import type { EventoCorporativo, EventoCorporativoCandidato } from "@/lib/api";
+import type { EventoCorporativo } from "@/lib/api";
 
 export type EventForm = {
   ticker: string;
@@ -41,18 +41,6 @@ export function toEventForm(event: EventoCorporativo): EventForm {
     fatorQuantidade: String(event.fatorQuantidade),
     fatorPreco: String(event.fatorPreco),
     observacao: event.observacao ?? "",
-  };
-}
-
-export function candidatoToEventForm(candidato: EventoCorporativoCandidato): EventForm {
-  return {
-    ticker: candidato.ticker,
-    tickerDestino: candidato.tickerDestino ?? "",
-    tipo: candidato.tipo,
-    dataEvento: candidato.dataEvento ? toDateInputValue(candidato.dataEvento) : "",
-    fatorQuantidade: candidato.fatorQuantidade ? String(candidato.fatorQuantidade) : "1",
-    fatorPreco: candidato.fatorPreco ? String(candidato.fatorPreco) : "1",
-    observacao: candidato.titulo,
   };
 }
 
@@ -114,14 +102,4 @@ export function importStatusClass(status: ImportItemStatus) {
   };
 
   return classes[status];
-}
-
-export function candidateConfidenceLabel(confianca: EventoCorporativoCandidato["confianca"]) {
-  const labels: Record<EventoCorporativoCandidato["confianca"], string> = {
-    BAIXA: "Baixa",
-    MEDIA: "Media",
-    ALTA: "Alta",
-  };
-
-  return labels[confianca];
 }

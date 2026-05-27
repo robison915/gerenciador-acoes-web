@@ -3,18 +3,14 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 
 import {
   adicionarAcaoAvulsaEmCarteira,
-  aprovarEventoCorporativoCandidato,
-  coletarEventosCorporativosCandidatos,
   createAdminUser,
   createCarteira,
   createEventoCorporativo,
-  descartarEventoCorporativoCandidato,
   distribuirUltimaImportacaoB3,
   getAuthToken,
   getMe,
   listExecucoesEventoCorporativo,
   login,
-  listEventosCorporativosCandidatos,
   movimentarAcaoEntreCarteiras,
   processarEventoCorporativo,
   projetarAjusteCarteira,
@@ -193,10 +189,6 @@ describe("api client", () => {
     await updateEventoCorporativo("evento-id", payload);
     await processarEventoCorporativo("evento-id");
     await listExecucoesEventoCorporativo("evento-id");
-    await listEventosCorporativosCandidatos();
-    await coletarEventosCorporativosCandidatos();
-    await aprovarEventoCorporativoCandidato("candidato-id", payload);
-    await descartarEventoCorporativoCandidato("candidato-id");
     await updateTickerCadastro("ISAE4", { nomeEmpresa: "ISA Energia Brasil S.A." });
     await createAdminUser({ email: "novo-admin@teste.com", password: "123456" });
 
@@ -205,18 +197,9 @@ describe("api client", () => {
     assert.equal(calls[1].init.method, "PATCH");
     assert.equal(calls[2].url, "/api/admin/eventos-corporativos/evento-id/processar");
     assert.equal(calls[3].url, "/api/admin/eventos-corporativos/evento-id/execucoes");
-    assert.equal(calls[4].url, "/api/admin/eventos-corporativos/candidatos");
-    assert.equal(calls[4].init.method, "GET");
-    assert.equal(calls[5].url, "/api/admin/eventos-corporativos/candidatos/coletar");
-    assert.equal(calls[5].init.method, "POST");
-    assert.equal(calls[6].url, "/api/admin/eventos-corporativos/candidatos/candidato-id/aprovar");
-    assert.equal(calls[6].init.method, "POST");
-    assert.deepEqual(parsedBody(calls[6]), payload);
-    assert.equal(calls[7].url, "/api/admin/eventos-corporativos/candidatos/candidato-id/descartar");
-    assert.equal(calls[7].init.method, "PATCH");
-    assert.equal(calls[8].url, "/api/admin/acoes/tickers/ISAE4");
-    assert.deepEqual(parsedBody(calls[8]), { nomeEmpresa: "ISA Energia Brasil S.A." });
-    assert.equal(calls[9].url, "/api/admin/usuarios/admins");
+    assert.equal(calls[4].url, "/api/admin/acoes/tickers/ISAE4");
+    assert.deepEqual(parsedBody(calls[4]), { nomeEmpresa: "ISA Energia Brasil S.A." });
+    assert.equal(calls[5].url, "/api/admin/usuarios/admins");
   });
 
   it("centraliza distribuicao da ultima importacao B3", async () => {
